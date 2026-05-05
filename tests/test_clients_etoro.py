@@ -9,13 +9,30 @@ from etoro_tui.clients.etoro import (
     EtoroTransientError,
 )
 
+# Sample shape that matches what the live API actually returns.
+_PORTFOLIO_OK = {
+    "clientPortfolio": {
+        "positions": [
+            {
+                "positionID": 0,
+                "openDateTime": "2026-01-01T00:00:00Z",
+                "openRate": 215.05,
+                "instrumentID": 1005,
+                "isBuy": True,
+                "amount": 2500.0,
+                "units": 10.0,
+            }
+        ],
+        "credit": 0.00,
+        "orders": [],
+    }
+}
+
 
 @pytest.mark.asyncio
 async def test_fetch_portfolio_sets_headers():
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        route = mock.get("/api/v1/portfolio").respond(
-            200, json={"positions": [], "totalEquity": 0, "availableBalance": 0, "totalProfit": 0}
-        )
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        route = mock.get("/api/v1/trading/info/portfolio").respond(200, json=_PORTFOLIO_OK)
         client = EtoroClient(public_key="pk", user_key="uk")
         await client.fetch_portfolio()
         await client.aclose()
@@ -26,9 +43,22 @@ async def test_fetch_portfolio_sets_headers():
 
 
 @pytest.mark.asyncio
+async def test_fetch_portfolio_returns_clientPortfolio_inner_dict():
+    """Client unwraps the `clientPortfolio` wrapper so callers see {positions, credit, ...}."""
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        mock.get("/api/v1/trading/info/portfolio").respond(200, json=_PORTFOLIO_OK)
+        client = EtoroClient("pk", "uk")
+        data = await client.fetch_portfolio()
+        await client.aclose()
+        assert data["credit"] == 0.00
+        assert len(data["positions"]) == 1
+        assert data["positions"][0]["instrumentID"] == 1005
+
+
+@pytest.mark.asyncio
 async def test_401_raises_auth_error_no_retry():
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        route = mock.get("/api/v1/portfolio").respond(401, json={"error": "Unauthorized"})
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        route = mock.get("/api/v1/trading/info/portfolio").respond(401, json={"error": "Unauthorized"})
         client = EtoroClient("pk", "uk")
         with pytest.raises(EtoroAuthError):
             await client.fetch_portfolio()
@@ -38,8 +68,8 @@ async def test_401_raises_auth_error_no_retry():
 
 @pytest.mark.asyncio
 async def test_429_retries_then_raises_transient():
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        route = mock.get("/api/v1/portfolio").respond(429, json={"error": "RateLimited"})
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        route = mock.get("/api/v1/trading/info/portfolio").respond(429, json={"error": "RateLimited"})
         client = EtoroClient("pk", "uk", max_retries=3, backoff_seconds=(0, 0, 0))
         with pytest.raises(EtoroTransientError):
             await client.fetch_portfolio()
@@ -49,29 +79,17 @@ async def test_429_retries_then_raises_transient():
 
 @pytest.mark.asyncio
 async def test_429_then_200_succeeds():
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        route = mock.get("/api/v1/portfolio")
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        route = mock.get("/api/v1/trading/info/portfolio")
         route.side_effect = [
             httpx.Response(429, json={"error": "RateLimited"}),
-            httpx.Response(200, json={"positions": [], "totalEquity": 100, "availableBalance": 50, "totalProfit": 0}),
+            httpx.Response(200, json=_PORTFOLIO_OK),
         ]
         client = EtoroClient("pk", "uk", max_retries=3, backoff_seconds=(0, 0, 0))
         data = await client.fetch_portfolio()
         await client.aclose()
-        assert data["totalEquity"] == 100
+        assert data["credit"] == 0.00
         assert route.call_count == 2
-
-
-@pytest.mark.asyncio
-async def test_fetch_account_returns_payload():
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        mock.get("/api/v1/account").respond(
-            200, json={"username": "x", "equity": 50000, "availableBalance": 10000, "realizedProfit": 1000, "unrealizedProfit": 500}
-        )
-        client = EtoroClient("pk", "uk")
-        data = await client.fetch_account()
-        await client.aclose()
-        assert data["equity"] == 50000
 
 
 @pytest.mark.asyncio
@@ -83,8 +101,8 @@ async def test_no_sleep_after_final_attempt(monkeypatch):
         sleep_calls.append(d)
 
     monkeypatch.setattr("asyncio.sleep", fake_sleep)
-    async with respx.mock(base_url="https://api.etoro.com") as mock:
-        mock.get("/api/v1/portfolio").respond(429)
+    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+        mock.get("/api/v1/trading/info/portfolio").respond(429)
         client = EtoroClient("pk", "uk", max_retries=3, backoff_seconds=(1, 2, 3))
         with pytest.raises(EtoroTransientError):
             await client.fetch_portfolio()

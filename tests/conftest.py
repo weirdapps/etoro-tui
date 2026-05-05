@@ -29,7 +29,12 @@ def tmp_census_dir(tmp_path: Path) -> Path:
                 {"instrumentId": 1001, "symbolFull": "AAPL"},
                 {"instrumentId": 1002, "symbolFull": "MSFT"},
                 {"instrumentId": 1007, "symbolFull": "TSLA"},
-            ]
+            ],
+            "priceData": [
+                {"instrumentId": 1001, "currentPrice": 280.14},
+                {"instrumentId": 1002, "currentPrice": 410.50},
+                {"instrumentId": 1007, "currentPrice": 245.00},
+            ],
         },
         "investors": [
             {"portfolio": {"positions": [{"instrumentId": 1001}, {"instrumentId": 1002}]}},

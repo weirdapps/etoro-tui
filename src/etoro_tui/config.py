@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-ETORO_BASE_URL = "https://api.etoro.com"
+ETORO_BASE_URL = "https://public-api.etoro.com"
 
 # Refresh intervals (seconds)
 POLL_PORTFOLIO_S = 5

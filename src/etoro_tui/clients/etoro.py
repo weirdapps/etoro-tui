@@ -1,8 +1,14 @@
 # src/etoro_tui/clients/etoro.py
 """Async eToro REST client with retry+backoff.
 
-Returns raw dicts from `/portfolio` and `/account`. Conversion to dataclasses
+Hits `https://public-api.etoro.com/api/v1/trading/info/portfolio` — the only
+real-data endpoint we found that works for retail accounts. Returns the raw
+`clientPortfolio` dict (positions list + credit). Conversion to dataclasses
 happens in app.py so this module stays free of model dependencies.
+
+There is intentionally no `fetch_account` method — eToro's portfolio response
+already contains `credit` (cash). Equity is computed locally from positions
++ credit. See docs/etoro-api-actual.md for the full API discovery.
 """
 from __future__ import annotations
 
@@ -89,7 +95,11 @@ class EtoroClient:
             await asyncio.sleep(delay)
 
     async def fetch_portfolio(self) -> dict[str, Any]:
-        return await self._get("/api/v1/portfolio")
+        """Return the `clientPortfolio` dict.
 
-    async def fetch_account(self) -> dict[str, Any]:
-        return await self._get("/api/v1/account")
+        Shape: {positions: [...], credit: float, orders: [...], ...}.
+        Caller is responsible for resolving instrumentID→symbol and computing
+        per-position pnl/value (eToro doesn't return those).
+        """
+        raw = await self._get("/api/v1/trading/info/portfolio")
+        return raw.get("clientPortfolio", {})

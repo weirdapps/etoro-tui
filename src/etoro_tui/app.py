@@ -14,7 +14,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 
 from . import config, storage
-from .clients.census import CensusReader
+from .clients.census import CensusReader, InstrumentInfo
 from .clients.etoro import (
     EtoroAuthError,
     EtoroClient,
@@ -31,33 +31,61 @@ from .widgets.positions_table import PositionsTable
 log = logging.getLogger(__name__)
 
 
-def _to_position(raw: dict, signals: dict, census: dict, news: NewsReader) -> Position:
-    sym = raw["symbol"].upper()
+def _to_position(
+    raw: dict,
+    instruments: dict[int, InstrumentInfo],
+    signals: dict,
+    pi_pct: dict,
+    news: NewsReader,
+) -> Position | None:
+    """Build a Position from a raw eToro position record.
+
+    Returns None when the instrumentID can't be resolved via census (skip the
+    row rather than render with bogus data). eToro returns no symbol/price/pnl
+    so we compute them from the census instruments map.
+    """
+    inst_id = raw["instrumentID"]
+    info = instruments.get(inst_id)
+    if info is None:
+        return None
+    sym = info.symbol.upper()
+    units = float(raw["units"])
+    open_rate = float(raw["openRate"])
+    current_rate = float(info.current_price)
+    is_buy = bool(raw["isBuy"])
+    direction_sign = 1 if is_buy else -1
+    value = current_rate * units
+    pnl = (current_rate - open_rate) * units * direction_sign
+    pnl_pct = ((current_rate - open_rate) / open_rate * 100 * direction_sign
+               if open_rate else 0.0)
     cnt = news.count_24h(sym)
     return Position(
-        position_id=raw["positionId"],
+        position_id=raw["positionID"],
         symbol=sym,
-        direction=raw["direction"],
-        units=float(raw["units"]),
-        open_rate=float(raw["openRate"]),
-        current_rate=float(raw["currentRate"]),
-        value=float(raw["units"]) * float(raw["currentRate"]),
-        pnl=float(raw["profit"]),
-        pnl_pct=float(raw["profitPercentage"]),
-        open_ts=datetime.fromisoformat(raw["openTimestamp"].replace("Z", "+00:00")),
+        direction="Buy" if is_buy else "Sell",
+        units=units,
+        open_rate=open_rate,
+        current_rate=current_rate,
+        value=value,
+        pnl=pnl,
+        pnl_pct=pnl_pct,
+        open_ts=datetime.fromisoformat(raw["openDateTime"].replace("Z", "+00:00")),
         signal=signals.get(sym),
-        pi_pct=census.get(sym),
+        pi_pct=pi_pct.get(sym),
         news_24h=cnt,
         news_anomaly=news.is_anomaly(sym) if cnt is not None else False,
     )
 
 
-def _to_account(raw: dict) -> AccountSummary:
+def _account_from(positions: tuple[Position, ...], credit: float) -> AccountSummary:
+    """Compute account summary from positions + cash. eToro doesn't return one."""
+    invested_value = sum(p.value for p in positions)
+    unrealized = sum(p.pnl for p in positions)
     return AccountSummary(
-        equity=float(raw["equity"]),
-        cash=float(raw["availableBalance"]),
-        unrealized=float(raw["unrealizedProfit"]),
-        realized=float(raw["realizedProfit"]),
+        equity=credit + invested_value,
+        cash=credit,
+        unrealized=unrealized,
+        realized=0.0,  # not exposed by the public-api endpoint we use
         fetched_at=datetime.now(timezone.utc),
     )
 
@@ -139,7 +167,6 @@ class EtoroTuiApp(App[None]):
             return
         try:
             portfolio = await self._etoro_client.fetch_portfolio()
-            account = await self._etoro_client.fetch_account()
         except EtoroAuthError as e:
             self._set_error(f"auth failed: {e}", "down")
             return
@@ -148,12 +175,25 @@ class EtoroTuiApp(App[None]):
             return
 
         signals = self._signals.read()
-        census = self._census.read()
-        positions = tuple(
-            _to_position(p, signals, census, self._news)
-            for p in portfolio.get("positions", [])
-        )
-        acct = _to_account(account)
+        pi_pct = self._census.read()
+        instruments = self._census.instruments()
+
+        raw_positions = portfolio.get("positions", [])
+        credit = float(portfolio.get("credit", 0.0))
+
+        positions_list: list[Position] = []
+        skipped = 0
+        for raw in raw_positions:
+            built = _to_position(raw, instruments, signals, pi_pct, self._news)
+            if built is None:
+                skipped += 1
+            else:
+                positions_list.append(built)
+        if skipped:
+            log.info("skipped %d positions (instrumentID not in census)", skipped)
+        positions = tuple(positions_list)
+
+        acct = _account_from(positions, credit)
         if self._opening_equity_today is None:
             self._opening_equity_today = acct.equity
 
