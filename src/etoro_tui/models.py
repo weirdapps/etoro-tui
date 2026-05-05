@@ -29,6 +29,12 @@ class Position:
     news_24h: Optional[int] = None
     news_anomaly: bool = False             # True when count > 1.5 × 7d avg
     position_count: int = 1                # >1 when this row aggregates several raw positions
+    # Fundamentals (etorotrade CSV, daily refresh; None for ETFs/crypto/illiquid):
+    pe_trailing: Optional[float] = None    # trailing 12m P/E
+    pe_forward: Optional[float] = None     # forward 12m P/E
+    upside_pct: Optional[float] = None     # analyst target price implied % upside
+    analyst_buy_pct: Optional[float] = None  # % of analyst recommendations = Buy
+    target_price: Optional[float] = None   # consensus target price (issuer currency)
 
 
 @dataclass(frozen=True)

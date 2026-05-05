@@ -22,7 +22,7 @@ from .clients.etoro import (
     EtoroTransientError,
 )
 from .clients.news import NewsReader
-from .clients.signals import SignalsReader
+from .clients.signals import Fundamentals, SignalsReader
 from .models import AccountSummary, AppState, Position, Status
 from .widgets.detail_panel import DetailPanel
 from .widgets.footer import Footer
@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 def _to_position(
     raw: dict,
     instruments: dict[int, InstrumentInfo],
-    signals: dict,
+    fundamentals: dict[str, Fundamentals],
     pi_pct: dict,
     news: NewsReader,
 ) -> Position | None:
@@ -73,6 +73,7 @@ def _to_position(
     pnl_pct = ((current_rate - open_rate) / open_rate * 100 * direction_sign
                if open_rate else 0.0)
     cnt = news.count_24h(sym)
+    fund = fundamentals.get(sym)
     return Position(
         position_id=raw["positionID"],
         symbol=sym,
@@ -84,10 +85,15 @@ def _to_position(
         pnl=pnl,
         pnl_pct=pnl_pct,
         open_ts=datetime.fromisoformat(raw["openDateTime"].replace("Z", "+00:00")),
-        signal=signals.get(sym),
+        signal=fund.signal if fund else None,
         pi_pct=pi_pct.get(sym),
         news_24h=cnt,
         news_anomaly=news.is_anomaly(sym) if cnt is not None else False,
+        pe_trailing=fund.pe_trailing if fund else None,
+        pe_forward=fund.pe_forward if fund else None,
+        upside_pct=fund.upside_pct if fund else None,
+        analyst_buy_pct=fund.analyst_buy_pct if fund else None,
+        target_price=fund.target_price if fund else None,
     )
 
 
@@ -101,8 +107,9 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
     - pnl_pct: total_pnl ÷ total_cost × 100.
     - open_ts: earliest open across the group.
     - position_count: how many raw positions were aggregated.
-    - direction, signal, pi_pct, news_*: taken from the first position
-      (these are per-instrument, identical across the group).
+    - direction, signal, pi_pct, news_*, pe_*, upside_pct, analyst_*,
+      target_price: taken from the first position (per-instrument, identical
+      across the group).
     - position_id: kept as the first position's id, used as a stable key for
       DataTable rows and the snapshot table — has no semantic meaning here.
     """
@@ -136,6 +143,11 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
             news_24h=first.news_24h,
             news_anomaly=first.news_anomaly,
             position_count=len(ps),
+            pe_trailing=first.pe_trailing,
+            pe_forward=first.pe_forward,
+            upside_pct=first.upside_pct,
+            analyst_buy_pct=first.analyst_buy_pct,
+            target_price=first.target_price,
         ))
     return tuple(out)
 
@@ -246,7 +258,7 @@ class EtoroTuiApp(App[None]):
             self._set_error(f"transient: {e}", "degraded")
             return
 
-        signals = self._signals.read()
+        fundamentals = self._signals.fundamentals()
         pi_pct = self._census.read()
         instruments = self._census.instruments()
 
@@ -256,7 +268,7 @@ class EtoroTuiApp(App[None]):
         positions_list: list[Position] = []
         skipped = 0
         for raw in raw_positions:
-            built = _to_position(raw, instruments, signals, pi_pct, self._news)
+            built = _to_position(raw, instruments, fundamentals, pi_pct, self._news)
             if built is None:
                 skipped += 1
             else:
@@ -288,17 +300,23 @@ class EtoroTuiApp(App[None]):
         # Re-attach current overlay values without re-fetching from eToro.
         if self._state.account is None:
             return
-        signals = self._signals.read()
+        fundamentals = self._signals.fundamentals()
         census = self._census.read()
         new_positions = []
         for p in self._state.positions:
             cnt = self._news.count_24h(p.symbol)
+            fund = fundamentals.get(p.symbol)
             new_positions.append(replace(
                 p,
-                signal=signals.get(p.symbol),
+                signal=fund.signal if fund else None,
                 pi_pct=census.get(p.symbol),
                 news_24h=cnt,
                 news_anomaly=self._news.is_anomaly(p.symbol) if cnt is not None else False,
+                pe_trailing=fund.pe_trailing if fund else None,
+                pe_forward=fund.pe_forward if fund else None,
+                upside_pct=fund.upside_pct if fund else None,
+                analyst_buy_pct=fund.analyst_buy_pct if fund else None,
+                target_price=fund.target_price if fund else None,
             ))
         self._state = AppState(
             account=self._state.account, positions=tuple(new_positions),
@@ -394,9 +412,19 @@ class EtoroTuiApp(App[None]):
             source = config.get_credentials_source()
         except Exception:
             source = "unknown"
+        # Census mtime: read newest matching file on disk.
+        census_mtime: float | None = None
+        try:
+            files = sorted(config.CENSUS_GLOB_DIR.glob(config.CENSUS_GLOB_PATTERN))
+            if files:
+                census_mtime = files[-1].stat().st_mtime
+        except OSError:
+            pass
         self.push_screen(HelpModal(
             auth_source=source,
             snapshot_db=str(config.SNAPSHOT_DB_PATH),
+            signals_mtime=self._signals.mtime(),
+            census_mtime=census_mtime,
         ))
 
     # ------- messages -------

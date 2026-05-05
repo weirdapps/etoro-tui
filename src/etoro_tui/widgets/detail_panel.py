@@ -182,7 +182,6 @@ class DetailPanel(Vertical):
         color = "green" if p.pnl >= 0 else "red"
         eq_pct = (p.value / self.equity * 100) if self.equity > 0 else 0.0
 
-        # Overlay subline pieces
         sig_label = "—" if p.signal is None else p.signal
         sig_color = {"BUY": "green", "SELL": "red", "HOLD": "dim"}.get(p.signal or "", "dim")
         if p.pi_pct is None:
@@ -199,11 +198,28 @@ class DetailPanel(Vertical):
             news_label = f"{p.news_24h} ▴" if p.news_anomaly else str(p.news_24h)
             news_color = "yellow" if p.news_anomaly else ""
 
+        def _opt(v: float | None, fmt: str = "{:.1f}") -> tuple[str, str]:
+            if v is None:
+                return ("—", "dim")
+            return (fmt.format(v), "")
+
+        pet_label, pet_color = _opt(p.pe_trailing)
+        pef_label, pef_color = _opt(p.pe_forward)
+        ups_label = "—" if p.upside_pct is None else f"{p.upside_pct:+.1f}%"
+        ups_color = "dim" if p.upside_pct is None else (
+            "green" if p.upside_pct >= 10 else "red" if p.upside_pct <= -10 else "")
+        buy_label = "—" if p.analyst_buy_pct is None else f"{p.analyst_buy_pct:.0f}%"
+        buy_color = "dim" if p.analyst_buy_pct is None else (
+            "green" if p.analyst_buy_pct >= 75 else "red" if p.analyst_buy_pct <= 25 else "")
+        tgt_label = "—" if p.target_price is None else f"${p.target_price:,.2f}"
+        tgt_color = "dim" if p.target_price is None else ""
+
         units_str = f"{p.units:,.4f}".rstrip("0").rstrip(".")
         ccy = _classify_currency(p.symbol)
         ccy_note = f"  [{ccy}]" if ccy != "USD" else ""
 
         body.update(Text.assemble(
+            # Position structure
             (lots_text, "dim"),
             ("  ·  ", "dim"),
             (p.direction, "green" if p.direction == "Buy" else "red"),
@@ -213,7 +229,8 @@ class DetailPanel(Vertical):
             (f"{avg_word}${p.open_rate:,.2f}", ""),
             (ccy_note, "dim"),
             ("\n\n", ""),
-            ("Now    ", "dim"),
+            # Price + P&L block
+            ("Close  ", "dim"),
             (f"${p.current_rate:,.2f}", color),
             ("    ", ""),
             (f"{sign}{abs(p.pnl_pct):.2f}%", color),
@@ -225,20 +242,26 @@ class DetailPanel(Vertical):
             ("    ", ""),
             (f"{eq_pct:.1f}% of equity", "dim"),
             ("\n\n", ""),
-            ("Signal  ", "dim"),
-            (sig_label, sig_color),
-            ("    ", ""),
-            ("Census  ", "dim"),
-            (pi_label, pi_color),
-            (" PIs", "dim"),
-            ("    ", ""),
-            ("News 24h  ", "dim"),
-            (news_label, news_color),
+            # Fundamentals block
+            ("Fundamentals\n", "bold"),
+            ("  PE-T  ", "dim"), (pet_label, pet_color),
+            ("    PE-F  ", "dim"), (pef_label, pef_color),
+            ("\n", ""),
+            ("  Tgt   ", "dim"), (tgt_label, tgt_color),
+            ("    Up%   ", "dim"), (ups_label, ups_color),
+            ("\n", ""),
+            ("  Buy%  ", "dim"), (buy_label, buy_color),
+            ("\n\n", ""),
+            # Social / signals
+            ("Social\n", "bold"),
+            ("  Sig   ", "dim"), (sig_label, sig_color),
+            ("    Census  ", "dim"), (pi_label, pi_color), (" PIs", "dim"),
+            ("\n", ""),
+            ("  News 24h  ", "dim"), (news_label, news_color),
         ))
 
-        # Restore sparkline labels
-        self.query_one("#dp-today-label", Static).update(Text("Today", style="dim"))
-        self.query_one("#dp-week-label", Static).update(Text("7-day", style="dim"))
+        self.query_one("#dp-today-label", Static).update(Text("Close (24h)", style="dim"))
+        self.query_one("#dp-week-label", Static).update(Text("Close (7d)", style="dim"))
 
     def watch_intraday(self, vals: tuple[float, ...]) -> None:
         if self.is_mounted:

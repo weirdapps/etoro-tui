@@ -1,9 +1,27 @@
 """Main DataTable: aggregated-by-ticker positions, sortable + filterable.
 
-Columns kept compact and decision-relevant. News count is intentionally
-NOT here — for a 35-row table where most rows show 0/—, it eats space
-without earning it. News surfaces in the detail panel where you actually
-want it (one ticker at a time).
+Column labels are deliberately precise so nothing is mistaken for live data:
+
+  Symbol  — eToro instrument symbol (live; positions added/removed as you trade)
+  Open    — weighted-avg cost per unit, USD (static, set when each lot opened)
+  Close   — last close from census priceData (DAILY ~03:00 UTC, NOT live)
+  Δ%      — total % change Close vs Open, NOT today's change
+  Value   — units × Close, in USD (DAILY)
+  % Eq    — Value / total equity (DAILY)
+  P&L $   — (Close − Open) × units × dir, total since open, NOT today (DAILY)
+  PE-T    — trailing 12m P/E from etorotrade (DAILY ~22:00 UTC)
+  PE-F    — forward 12m P/E (DAILY)
+  Up%     — analyst-target implied upside (DAILY)
+  Buy%    — % of analyst recs = BUY (DAILY)
+  PI%     — % of eToro popular investors holding (DAILY)
+  Sig     — etorotrade BUY / SELL / HOLD (DAILY)
+
+Lots and per-position Units live in the detail panel — for daily glance the
+aggregated $ matters more than how many lots accumulated it.
+
+There is no "today's Δ" column — eToro's free retail endpoint does not return
+intraday or session-open prices, so we cannot honestly compute one. Header
+shows session-vs-snapshot equity Δ instead.
 """
 from __future__ import annotations
 
@@ -19,14 +37,21 @@ from textual.widgets import DataTable, Input
 from ..models import Position
 
 
-SortKey = Literal["value", "pnl", "pnl_pct", "symbol", "signal"]
-_SORT_CYCLE: list[SortKey] = ["value", "pnl", "pnl_pct", "symbol", "signal"]
+SortKey = Literal["value", "pnl", "pnl_pct", "upside_pct", "analyst_buy_pct",
+                  "pe_forward", "symbol", "signal"]
+_SORT_CYCLE: list[SortKey] = [
+    "value", "pnl", "pnl_pct", "upside_pct", "analyst_buy_pct",
+    "pe_forward", "signal", "symbol",
+]
 SORT_LABELS: dict[SortKey, str] = {
     "value": "Value ↓",
     "pnl": "P&L ↓",
     "pnl_pct": "Δ% ↓",
-    "symbol": "Symbol",
+    "upside_pct": "Upside ↓",
+    "analyst_buy_pct": "Buy% ↓",
+    "pe_forward": "PE-F ↑",   # cheaper first
     "signal": "Signal",
+    "symbol": "Symbol",
 }
 
 _SIG_STYLE = {
@@ -35,34 +60,25 @@ _SIG_STYLE = {
     "HOLD": ("dim", "HOLD"),
 }
 
-# (label, width). width=None lets DataTable auto-size; explicit widths give
-# justify="right" Text actual room to right-align inside. Without widths,
-# DataTable shrinks columns to widest content and the justification is a no-op.
+# (label, width). Width = None lets DataTable auto-size; explicit widths give
+# justify="right" Text actual room to right-align inside the cell.
+# Total ≈ 110 chars (excluding Symbol auto-size). Fits a 130+ col terminal
+# alongside a 48-col detail panel.
 _COLS: tuple[tuple[str, int | None], ...] = (
-    ("Symbol",   None),  # auto — varies (AAPL, LYXGRE.DE, NOVO-B.CO …)
-    ("Lots",        5),
-    ("Units",      12),
-    ("Avg Open",   11),
-    ("Now",        11),
-    ("Δ%",          8),
-    ("Value $",    13),
-    ("% Eq",        7),
-    ("P&L $",      13),
+    ("Symbol",   None),
+    ("Open",        9),
+    ("Close",       9),
+    ("Δ%",          7),
+    ("Value $",    12),
+    ("% Eq",        6),
+    ("P&L $",      12),
+    ("PE-T",        6),
+    ("PE-F",        6),
+    ("Up%",         7),
+    ("Buy%",        6),
+    ("PI%",         5),
     ("Sig",         5),
-    ("PI%",         6),
 )
-
-
-def _fmt_units(u: float) -> Text:
-    if u >= 10_000:
-        s = f"{u:,.0f}"
-    elif u >= 100:
-        s = f"{u:,.1f}"
-    elif u >= 1:
-        s = f"{u:,.4f}".rstrip("0").rstrip(".")
-    else:
-        s = f"{u:,.6f}".rstrip("0").rstrip(".")
-    return Text(s, justify="right")
 
 
 def _money(v: float) -> Text:
@@ -97,7 +113,6 @@ def _pnl(pnl: float) -> Text:
 
 
 def _eq_pct(pct: float) -> Text:
-    """Bold for >=10% (concentrated), dim for <2% (dust), normal between."""
     if pct >= 10:
         style = "bold"
     elif pct < 2:
@@ -107,9 +122,41 @@ def _eq_pct(pct: float) -> Text:
     return Text(f"{pct:.1f}%", style=style, justify="right")
 
 
-def _lots(n: int) -> Text:
-    style = "dim" if n == 1 else ""
-    return Text(str(n), style=style, justify="right")
+def _pe(v: float | None) -> Text:
+    """P/E ratio: dim if >40 (expensive) or <0 (loss-making) or missing."""
+    if v is None:
+        return Text("—", style="dim", justify="right")
+    if v <= 0 or v > 100:
+        # Loss-making (negative) or extreme — show but dim.
+        return Text(f"{v:.1f}", style="dim", justify="right")
+    return Text(f"{v:.1f}", justify="right")
+
+
+def _upside(v: float | None) -> Text:
+    """Analyst upside %. Green if >=10, red if <=-10, dim if missing."""
+    if v is None:
+        return Text("—", style="dim", justify="right")
+    if v >= 10:
+        color = "green"
+    elif v <= -10:
+        color = "red"
+    else:
+        color = ""
+    sign = "+" if v >= 0 else ""
+    return Text(f"{sign}{v:.1f}", style=color, justify="right")
+
+
+def _buy_pct(v: float | None) -> Text:
+    """Analyst buy %. Green ≥75, red ≤25, dim if missing."""
+    if v is None:
+        return Text("—", style="dim", justify="right")
+    if v >= 75:
+        color = "green"
+    elif v <= 25:
+        color = "red"
+    else:
+        color = ""
+    return Text(f"{v:.0f}%", style=color, justify="right")
 
 
 class PositionsTable(Vertical):
@@ -194,6 +241,15 @@ class PositionsTable(Vertical):
         elif key == "signal":
             order = {"BUY": 0, "SELL": 1, "HOLD": 2, None: 3}
             rows.sort(key=lambda p: (order.get(p.signal, 4), p.symbol))
+        elif key == "pe_forward":
+            # Cheap first. Treat None as huge so missing data sinks to bottom.
+            rows.sort(key=lambda p: p.pe_forward
+                      if p.pe_forward is not None and p.pe_forward > 0 else float("inf"))
+        elif key in ("upside_pct", "analyst_buy_pct"):
+            # None → bottom. Higher first.
+            rows.sort(key=lambda p: getattr(p, key)
+                      if getattr(p, key) is not None else float("-inf"),
+                      reverse=True)
         else:
             rows.sort(key=lambda p: getattr(p, key), reverse=True)
         return rows
@@ -206,15 +262,17 @@ class PositionsTable(Vertical):
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _lots(p.position_count),
-                _fmt_units(p.units),
                 _money(p.open_rate),
                 _money(p.current_rate),
                 _delta_pct(p.pnl_pct),
                 _money(p.value),
                 _eq_pct(pct_eq),
                 _pnl(p.pnl),
-                _signal(p.signal),
+                _pe(p.pe_trailing),
+                _pe(p.pe_forward),
+                _upside(p.upside_pct),
+                _buy_pct(p.analyst_buy_pct),
                 _pi(p.pi_pct),
+                _signal(p.signal),
                 key=str(p.position_id),
             )
