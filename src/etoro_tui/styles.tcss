@@ -86,6 +86,14 @@ DetailPanel.hidden {
 
 /* ---- Footer ---- */
 
+/* Footer is a Vertical of footer-bar (always 1 row) + footer-error (auto,
+ * 0 rows when no error). Without this rule the Vertical defaulted to 1fr
+ * and stole half the screen from #main. */
+Footer {
+    height: auto;
+    background: $panel;
+}
+
 #footer-bar {
     height: 1;
     layout: horizontal;
