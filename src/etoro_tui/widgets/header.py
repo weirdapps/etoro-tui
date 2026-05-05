@@ -1,7 +1,10 @@
-"""Two-row header.
+"""Single-row header — packed for vertical density.
 
-Row 1 (primary):  $100,000.00                          14:23:05 EET  ●live
-Row 2 (context):  ▲ +$500 (+0.26%) today  ▁▂▃▅▆▇   Cash $20K   P&L +$5K
+  $100,000.00   ▲ +$500 (+0.26%) today  ▁▂▃▅▆▇   Cash $20K  Open P&L +$5K   14:23 EET  ●live
+
+Equity is bold-cyan and visually leads. Everything else is dim labels with
+moderate-weight values. One row only — every saved row is one more ticker
+visible in the table below.
 """
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ from datetime import datetime
 
 from rich.text import Text
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import Sparkline, Static
 
@@ -26,21 +29,21 @@ def _delta(v: float, pct: float) -> Text:
     color = "green" if v >= 0 else "red"
     return Text.assemble(
         (f"{arrow} ", color),
-        (f"{sign}${abs(v):,.2f}", color),
-        (f"  ({sign}{abs(pct):.2f}%)", color),
-        ("  today", "dim"),
+        (f"{sign}${abs(v):,.0f}", color),
+        (f" ({sign}{abs(pct):.2f}%)", color),
+        (" today", "dim"),
     )
 
 
 def _cash(v: float) -> Text:
-    return Text.assemble(("Cash  ", "dim"), (f"${v:,.0f}", ""))
+    return Text.assemble(("Cash ", "dim"), (f"${v:,.0f}", ""))
 
 
 def _open_pnl(v: float) -> Text:
     color = "green" if v >= 0 else "red"
     sign = "+" if v >= 0 else "−"
     return Text.assemble(
-        ("Open P&L  ", "dim"),
+        ("P&L ", "dim"),
         (f"{sign}${abs(v):,.0f}", color),
     )
 
@@ -52,8 +55,8 @@ _STATUS_DOT: dict[Status, Text] = {
 }
 
 
-class Header(Vertical):
-    """Two-row header — primary equity on top, secondary context below."""
+class Header(Horizontal):
+    """Single-row header. Equity is the headline; the rest is context."""
 
     account: reactive[AccountSummary | None] = reactive(None)
     status: reactive[Status] = reactive("live")
@@ -63,15 +66,13 @@ class Header(Vertical):
     today_baseline_known: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="hdr-top"):
-            yield Static("", id="hdr-equity")
-            yield Static("", id="hdr-clock")
-            yield Static("", id="hdr-status")
-        with Horizontal(id="hdr-bottom"):
-            yield Static("", id="hdr-delta")
-            yield Sparkline([], id="hdr-spark", summary_function=max)
-            yield Static("", id="hdr-cash")
-            yield Static("", id="hdr-pnl")
+        yield Static("", id="hdr-equity")
+        yield Static("", id="hdr-delta")
+        yield Sparkline([], id="hdr-spark", summary_function=max)
+        yield Static("", id="hdr-cash")
+        yield Static("", id="hdr-pnl")
+        yield Static("", id="hdr-clock")
+        yield Static("", id="hdr-status")
 
     def on_mount(self) -> None:
         self.set_interval(1.0, self._tick_clock)
@@ -81,13 +82,13 @@ class Header(Vertical):
     def _tick_clock(self) -> None:
         now = datetime.now().astimezone()
         self.query_one("#hdr-clock", Static).update(
-            Text(now.strftime("%H:%M:%S %Z"), style="dim")
+            Text(now.strftime("%H:%M %Z"), style="dim")
         )
 
     def watch_account(self, a: AccountSummary | None) -> None:
         if a is None:
             self.query_one("#hdr-equity", Static).update(Text("$ —", style="dim"))
-            self.query_one("#hdr-cash", Static).update(Text("Cash  —", style="dim"))
+            self.query_one("#hdr-cash", Static).update(Text("Cash —", style="dim"))
             return
         self.query_one("#hdr-equity", Static).update(_equity(a.equity))
         self.query_one("#hdr-cash", Static).update(_cash(a.cash))
@@ -101,7 +102,7 @@ class Header(Vertical):
     def _render_delta(self) -> None:
         widget = self.query_one("#hdr-delta", Static)
         if not self.today_baseline_known:
-            widget.update(Text.assemble(("today  ", "dim"), ("collecting…", "dim")))
+            widget.update(Text("today collecting…", style="dim"))
             return
         delta, pct = self.today_delta
         widget.update(_delta(delta, pct))

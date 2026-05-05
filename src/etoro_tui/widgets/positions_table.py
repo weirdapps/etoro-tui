@@ -3,13 +3,14 @@
 Column labels are deliberately precise so nothing is mistaken for live data:
 
   Symbol  — eToro instrument symbol (live; positions added/removed as you trade)
-  Open    — weighted-avg cost per unit, USD (static, set when each lot opened)
   Last    — last execution from /market-data/instruments/rates (LIVE, ~5s poll)
             falls back to census priceData (yesterday's close) if rates fail
-  Δ%      — total % change Last vs Open, NOT today's change (since-open lifetime)
-  Value   — units × Last, in USD (live)
+  Δ%      — total % change since each lot's open price, NOT today's change
+            (avg-open is shown in the detail panel)
+  Value   — units × Last, in USD (live, integer rounding)
   % Eq    — Value / total equity (live)
   P&L $   — (Last − Open) × units × dir, total since open, NOT today's change
+            (live, integer rounding)
   PE-T    — trailing 12m P/E from etorotrade (DAILY ~22:00 UTC)
   PE-F    — forward 12m P/E (DAILY)
   Up%     — analyst-target implied upside (DAILY)
@@ -67,12 +68,11 @@ _SIG_STYLE = {
 # alongside a 48-col detail panel.
 _COLS: tuple[tuple[str, int | None], ...] = (
     ("Symbol",   None),
-    ("Open",        9),
     ("Last",        9),
     ("Δ%",          7),
-    ("Value $",    12),
+    ("Value $",     9),   # integer ($100,000 max) — no decimals per UX call
     ("% Eq",        6),
-    ("P&L $",      12),
+    ("P&L $",      10),   # signed integer (−1,234,567)
     ("PE-T",        6),
     ("PE-F",        6),
     ("Up%",         7),
@@ -83,7 +83,13 @@ _COLS: tuple[tuple[str, int | None], ...] = (
 
 
 def _money(v: float) -> Text:
+    """Two-decimal money for prices (Last column)."""
     return Text(f"{v:,.2f}", justify="right")
+
+
+def _money_int(v: float) -> Text:
+    """Integer money for $-amount columns (Value, P&L) — no decimals."""
+    return Text(f"{v:,.0f}", justify="right")
 
 
 def _signal(s: str | None) -> Text:
@@ -108,9 +114,10 @@ def _delta_pct(pct: float) -> Text:
 
 
 def _pnl(pnl: float) -> Text:
+    """Integer P&L — no decimals, signed, coloured."""
     color = "green" if pnl >= 0 else "red"
     sign = "+" if pnl >= 0 else "−"
-    return Text(f"{sign}{abs(pnl):,.2f}", style=color, justify="right")
+    return Text(f"{sign}{abs(pnl):,.0f}", style=color, justify="right")
 
 
 def _eq_pct(pct: float) -> Text:
@@ -263,12 +270,11 @@ class PositionsTable(Vertical):
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _money(p.open_rate),
-                _money(p.current_rate),
+                _money(p.current_rate),     # Last (with decimals — small numbers)
                 _delta_pct(p.pnl_pct),
-                _money(p.value),
+                _money_int(p.value),        # Value $ (integer)
                 _eq_pct(pct_eq),
-                _pnl(p.pnl),
+                _pnl(p.pnl),                # P&L $ (integer)
                 _pe(p.pe_trailing),
                 _pe(p.pe_forward),
                 _upside(p.upside_pct),

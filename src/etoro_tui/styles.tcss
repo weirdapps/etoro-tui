@@ -11,28 +11,21 @@ Screen {
     layout: vertical;
 }
 
-/* ---- Header ---- */
+/* ---- Header (single-row) ---- */
 
 Header {
-    height: 2;
-    background: $panel;
-}
-
-#hdr-top, #hdr-bottom {
     height: 1;
+    background: $panel;
     layout: horizontal;
 }
 
-/* Top row — equity dominates */
-#hdr-equity { width: 1fr;  padding: 0 1; }
-#hdr-clock  { width: 14;   content-align: right middle; padding-right: 1; }
-#hdr-status { width: 10;   content-align: right middle; padding-right: 1; }
-
-/* Bottom row — secondary context */
-#hdr-delta  { width: 36;   padding: 0 1; }
-#hdr-spark  { width: 24;   min-width: 12; }
-#hdr-cash   { width: 1fr;  content-align: right middle; padding-right: 2; }
-#hdr-pnl    { width: 28;   content-align: right middle; padding-right: 1; }
+#hdr-equity { width: 18;  padding-left: 1; }                 /* $100,000.00 */
+#hdr-delta  { width: 32;  padding-left: 2; }                 /* ▲ +$500 (+0.26%) today */
+#hdr-spark  { width: 1fr; min-width: 10; padding-left: 2; }
+#hdr-cash   { width: 16;  content-align: right middle; padding-right: 2; }
+#hdr-pnl    { width: 16;  content-align: right middle; padding-right: 2; }
+#hdr-clock  { width: 12;  content-align: right middle; padding-right: 1; }
+#hdr-status { width: 9;   content-align: right middle; padding-right: 1; }
 
 /* ---- Main area ---- */
 
@@ -56,7 +49,7 @@ DataTable > .datatable--header {
 }
 
 DetailPanel {
-    width: 48;
+    width: 42;
     border-left: solid $accent;
     padding: 0 1;
 }
