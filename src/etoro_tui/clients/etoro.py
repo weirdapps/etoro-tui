@@ -103,3 +103,43 @@ class EtoroClient:
         """
         raw = await self._get("/api/v1/trading/info/portfolio")
         return raw.get("clientPortfolio", {})
+
+    async def fetch_rates(
+        self,
+        instrument_ids: list[int],
+        batch_size: int = 50,
+    ) -> dict[int, dict[str, Any]]:
+        """Live last/bid/ask + current FX for each instrument.
+
+        Endpoint: GET /api/v1/market-data/instruments/rates?instrumentIds=…
+
+        Returns {instrumentID: rate_dict} where rate_dict has at minimum:
+            lastExecution, ask, bid               — all in instrument's local currency
+            conversionRateAsk, conversionRateBid  — local→USD multiplier
+            date                                   — ISO 8601 UTC
+
+        eToro is inconsistent about the key name: this endpoint returns
+        `instrumentID` (capital ID), same as the portfolio endpoint, but
+        census uses `instrumentId`. Be careful when joining datasets.
+
+        Batches at 50 IDs/request to stay under URL-length limits. Each batch
+        is a separate retry-protected HTTP call; partial failures (one batch
+        returns transient error) propagate as EtoroTransientError after
+        retries — the caller should fall back to census prices in that case.
+        """
+        if not instrument_ids:
+            return {}
+        out: dict[int, dict[str, Any]] = {}
+        for i in range(0, len(instrument_ids), batch_size):
+            batch = instrument_ids[i:i + batch_size]
+            path = (
+                "/api/v1/market-data/instruments/rates"
+                f"?instrumentIds={','.join(str(x) for x in batch)}"
+            )
+            resp = await self._get(path)
+            for r in resp.get("rates", []):
+                # Defensive: tolerate either casing in case eToro normalises later.
+                key = r.get("instrumentID", r.get("instrumentId"))
+                if key is not None:
+                    out[int(key)] = r
+        return out

@@ -26,11 +26,11 @@ _BINDINGS_TABLE = (
 _DATA_LEGEND = (
     ("Symbol",  "eToro instrument symbol",                 "live"),
     ("Open",    "weighted-avg cost per unit, USD",         "static"),
-    ("Close",   "last close (census priceData)",           "daily ~03 UTC"),
-    ("Δ%",      "(Close − Open) / Open · 100  — total since open, NOT today",  "daily"),
-    ("Value $", "units × Close",                           "daily"),
-    ("% Eq",    "Value / total equity",                    "daily"),
-    ("P&L $",   "(Close − Open) × units · dir — total since open, NOT today",  "daily"),
+    ("Last",    "last execution (eToro /market-data/rates)","live ~5s"),
+    ("Δ%",      "(Last − Open) / Open · 100  — total since open, NOT today",  "live"),
+    ("Value $", "units × Last",                            "live"),
+    ("% Eq",    "Value / total equity",                    "live"),
+    ("P&L $",   "(Last − Open) × units · dir — total since open, NOT today",  "live"),
     ("PE-T",    "trailing 12m P/E (etorotrade)",           "daily ~22 UTC"),
     ("PE-F",    "forward 12m P/E (etorotrade)",            "daily"),
     ("Up%",     "analyst-target implied upside",           "daily"),
@@ -73,14 +73,18 @@ def _build_body(
 
     parts.append(("\nWhat IS live\n", "bold cyan"))
     parts.append(("  • Position list  ", "dim"))
-    parts.append(("(eToro REST every 5s — open / close / amend reflects within seconds)\n", ""))
+    parts.append(("(eToro REST every 5s — open/close/amend reflects within seconds)\n", ""))
     parts.append(("  • Cash credit    ", "dim"))
     parts.append(("(same fetch as positions)\n", ""))
-    parts.append(("\nWhat is NOT live\n", "bold cyan"))
-    parts.append(("  Prices and all per-row metrics derived from prices come from\n", "dim"))
-    parts.append(("  yesterday's close (census refreshes ~03 UTC). eToro's free retail\n", "dim"))
-    parts.append(("  endpoint does not return current_rate, so we cannot honestly show\n", "dim"))
-    parts.append(("  intraday or today's-Δ values.\n", "dim"))
+    parts.append(("  • Last / Value / Δ% / P&L  ", "dim"))
+    parts.append(("(eToro /market-data/rates every 5s, batched all symbols)\n", ""))
+    parts.append(("\nWhat is daily-refreshed\n", "bold cyan"))
+    parts.append(("  Fundamentals (PE-T, PE-F, Up%, Buy%, Sig) come from etorotrade's\n", "dim"))
+    parts.append(("  CSV, regenerated nightly. PI% comes from census, regenerated daily.\n", "dim"))
+    parts.append(("\nFallback behaviour\n", "bold cyan"))
+    parts.append(("  If the live rates endpoint fails, prices fall back to census\n", "dim"))
+    parts.append(("  (yesterday's close). The footer indicator turns yellow ('census\n", "dim"))
+    parts.append(("  fallback') so you know your numbers are stale.\n", "dim"))
 
     parts.append(("\nData freshness\n", "bold cyan"))
     parts.append(("  Census priceData  ", "dim"))

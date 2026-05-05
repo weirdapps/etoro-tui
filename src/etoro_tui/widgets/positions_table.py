@@ -4,11 +4,12 @@ Column labels are deliberately precise so nothing is mistaken for live data:
 
   Symbol  — eToro instrument symbol (live; positions added/removed as you trade)
   Open    — weighted-avg cost per unit, USD (static, set when each lot opened)
-  Close   — last close from census priceData (DAILY ~03:00 UTC, NOT live)
-  Δ%      — total % change Close vs Open, NOT today's change
-  Value   — units × Close, in USD (DAILY)
-  % Eq    — Value / total equity (DAILY)
-  P&L $   — (Close − Open) × units × dir, total since open, NOT today (DAILY)
+  Last    — last execution from /market-data/instruments/rates (LIVE, ~5s poll)
+            falls back to census priceData (yesterday's close) if rates fail
+  Δ%      — total % change Last vs Open, NOT today's change (since-open lifetime)
+  Value   — units × Last, in USD (live)
+  % Eq    — Value / total equity (live)
+  P&L $   — (Last − Open) × units × dir, total since open, NOT today's change
   PE-T    — trailing 12m P/E from etorotrade (DAILY ~22:00 UTC)
   PE-F    — forward 12m P/E (DAILY)
   Up%     — analyst-target implied upside (DAILY)
@@ -67,7 +68,7 @@ _SIG_STYLE = {
 _COLS: tuple[tuple[str, int | None], ...] = (
     ("Symbol",   None),
     ("Open",        9),
-    ("Close",       9),
+    ("Last",        9),
     ("Δ%",          7),
     ("Value $",    12),
     ("% Eq",        6),

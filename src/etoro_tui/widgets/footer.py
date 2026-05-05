@@ -31,22 +31,25 @@ def _legend() -> Text:
 
 
 class Footer(Vertical):
-    """Renders key legend + sort indicator + last-fetch + error row when set."""
+    """Renders key legend + sort indicator + price-source + last-fetch + errors."""
 
     last_fetch: reactive[datetime | None] = reactive(None)
     last_error: reactive[str | None] = reactive(None)
     sort_label: reactive[str] = reactive("Value ↓")
+    prices_source: reactive[str] = reactive("—")  # "live" | "census" | "—"
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="footer-bar"):
             yield Static(_legend(), id="footer-legend")
             yield Static("", id="footer-sort")
+            yield Static("", id="footer-prices")
             yield Static("", id="footer-fetch")
         yield Static("", id="footer-error")
 
     def on_mount(self) -> None:
-        # Render initial sort label so the footer isn't half-empty on launch.
+        # Render initial labels so the footer isn't half-empty on launch.
         self.watch_sort_label(self.sort_label)
+        self.watch_prices_source(self.prices_source)
 
     def watch_last_fetch(self, value: datetime | None) -> None:
         widget = self.query_one("#footer-fetch", Static)
@@ -60,6 +63,16 @@ class Footer(Vertical):
         self.query_one("#footer-sort", Static).update(
             Text.assemble(("sort  ", "dim"), (value, "bold"))
         )
+
+    def watch_prices_source(self, value: str) -> None:
+        # Color the indicator: green=live, yellow=census fallback, dim=unknown.
+        if value == "live":
+            label = Text.assemble(("prices  ", "dim"), ("● live", "green"))
+        elif value == "census":
+            label = Text.assemble(("prices  ", "dim"), ("● census fallback", "yellow"))
+        else:
+            label = Text.assemble(("prices  ", "dim"), (value, "dim"))
+        self.query_one("#footer-prices", Static).update(label)
 
     def watch_last_error(self, value: str | None) -> None:
         widget = self.query_one("#footer-error", Static)

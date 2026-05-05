@@ -39,6 +39,7 @@ def _to_position(
     fundamentals: dict[str, Fundamentals],
     pi_pct: dict,
     news: NewsReader,
+    rates: dict[int, dict] | None = None,
 ) -> Position | None:
     """Build a Position from a raw eToro position record.
 
@@ -46,16 +47,22 @@ def _to_position(
     row rather than render with bogus data). eToro returns no symbol/price/pnl
     so we compute them from the census instruments map.
 
-    Census `currentPrice` AND eToro's `openRate` are both in the instrument's
-    listing currency (USD for US stocks, GBp for .L, HKD for .HK, DKK for .CO,
-    EUR for .DE, etc.). Each eToro position carries an `openConversionRate`
-    that is "USD per local currency unit" at the time the position was opened.
-    We multiply BOTH openRate and currentPrice by it to convert to USD. This
-    is approximate (FX drifts since open) but close enough for a dashboard —
-    verified against eToro's own equity figure within ~0.3%.
+    Both eToro's `openRate` and the price feeds (live `lastExecution` from
+    rates endpoint, or census `currentPrice` as fallback) are in the
+    instrument's listing currency (USD for US stocks, GBp for .L, HKD for
+    .HK, DKK for .CO, EUR for .DE, etc.).
 
-    The `amount` field already comes back in USD; for verification:
-    units × openRate × ocr ≈ amount holds across the board.
+    For OPEN price we use the position's stored `openConversionRate` (FX rate
+    at open time) — that's the only number that reproduces the original cost
+    basis correctly.
+
+    For CURRENT price we prefer the live rate's `conversionRateAsk` (current
+    FX) when available — most accurate. Fall back to per-position OCR only
+    when both live rates AND census are unavailable (shouldn't happen, but
+    keeps the row honest).
+
+    The `amount` field already comes back in USD; verification holds across
+    the board: units × openRate × openConversionRate ≈ amount.
     """
     inst_id = raw["instrumentID"]
     info = instruments.get(inst_id)
@@ -63,9 +70,18 @@ def _to_position(
         return None
     sym = info.symbol.upper()
     units = float(raw["units"])
-    ocr = float(raw.get("openConversionRate", 1.0))
-    open_rate = float(raw["openRate"]) * ocr        # local→USD
-    current_rate = float(info.current_price) * ocr  # local→USD
+    open_ocr = float(raw.get("openConversionRate", 1.0))
+    open_rate = float(raw["openRate"]) * open_ocr        # local→USD (cost basis)
+
+    live = (rates or {}).get(inst_id)
+    if live is not None:
+        # Live last-trade price × current FX (more accurate than per-position OCR).
+        local_now = float(live.get("lastExecution") or live.get("Bid") or live.get("bid"))
+        current_ocr = float(live.get("conversionRateAsk", 1.0))
+        current_rate = local_now * current_ocr
+    else:
+        # Fall back to yesterday's close from census, FX'd at open rate.
+        current_rate = float(info.current_price) * open_ocr
     is_buy = bool(raw["isBuy"])
     direction_sign = 1 if is_buy else -1
     value = current_rate * units
@@ -258,17 +274,34 @@ class EtoroTuiApp(App[None]):
             self._set_error(f"transient: {e}", "degraded")
             return
 
+        raw_positions = portfolio.get("positions", [])
+        credit = float(portfolio.get("credit", 0.0))
+
+        # Live prices for everything we hold. If this fails, we degrade
+        # gracefully to census (yesterday's close) without breaking the UI.
+        unique_ids = sorted({raw["instrumentID"] for raw in raw_positions})
+        rates: dict[int, dict] = {}
+        prices_live = False
+        if unique_ids:
+            try:
+                rates = await self._etoro_client.fetch_rates(unique_ids)
+                prices_live = bool(rates)
+            except EtoroAuthError as e:
+                self._set_error(f"auth failed (rates): {e}", "down")
+                return
+            except EtoroTransientError as e:
+                # Don't block the whole tick on a transient rates failure;
+                # just note it and let positions render with census prices.
+                log.warning("rates fetch failed, using census fallback: %s", e)
+
         fundamentals = self._signals.fundamentals()
         pi_pct = self._census.read()
         instruments = self._census.instruments()
 
-        raw_positions = portfolio.get("positions", [])
-        credit = float(portfolio.get("credit", 0.0))
-
         positions_list: list[Position] = []
         skipped = 0
         for raw in raw_positions:
-            built = _to_position(raw, instruments, fundamentals, pi_pct, self._news)
+            built = _to_position(raw, instruments, fundamentals, pi_pct, self._news, rates)
             if built is None:
                 skipped += 1
             else:
@@ -290,10 +323,14 @@ class EtoroTuiApp(App[None]):
         if self._db is not None:
             spark = storage.read_equity_sparkline(self._db, hours=24, max_points=80)
 
+        # Status reflects rates-fetch outcome too: live only when prices
+        # are also live; degraded when we fell back to census silently.
+        status: Status = "live" if prices_live else "degraded"
         self._state = AppState(
             account=acct, positions=positions, last_error=None,
-            status="live", equity_sparkline=spark,
+            status=status, equity_sparkline=spark,
         )
+        self.query_one(Footer).prices_source = "live" if prices_live else "census"
         self._render_state()
 
     def _tick_overlays(self) -> None:
