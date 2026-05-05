@@ -1,0 +1,31 @@
+[project]
+name = "etoro-tui"
+version = "0.1.0"
+description = "Terminal UI for eToro portfolio with intelligence overlays"
+requires-python = ">=3.13"
+dependencies = [
+    "textual>=0.86",
+    "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+]
+
+[project.scripts]
+etoro-tui = "etoro_tui.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/etoro_tui"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
