@@ -1,9 +1,10 @@
 /* src/etoro_tui/styles.tcss
  *
  * Layout (top → bottom):
- *   Header — 1 row, equity / Δ / sparkline / cash / P&L / clock / status dot
- *   #main  — 1fr, PositionsTable + DetailPanel side-by-side
- *   Footer — 1 row legend + sort + last-fetch, optional error banner below
+ *   Header — 2 rows. Row 1: equity (prominent) + clock + status.
+ *                    Row 2: today Δ + sparkline + cash + open P&L.
+ *   #main  — 1fr, PositionsTable + DetailPanel side-by-side.
+ *   Footer — 1 row legend + sort + last-fetch, optional error banner below.
  */
 
 Screen {
@@ -13,22 +14,25 @@ Screen {
 /* ---- Header ---- */
 
 Header {
-    height: 1;
+    height: 2;
     background: $panel;
 }
 
-Header > Static {
-    margin: 0 1;
+#hdr-top, #hdr-bottom {
     height: 1;
+    layout: horizontal;
 }
 
-#hdr-equity { width: 28; }
-#hdr-delta  { width: 36; }
-#hdr-spark  { width: 22; min-width: 14; }
-#hdr-cash   { width: 22; }
-#hdr-pnl    { width: 26; }
-#hdr-clock  { width: 14; content-align: right middle; }
-#hdr-status { width: 8;  content-align: right middle; }
+/* Top row — equity dominates */
+#hdr-equity { width: 1fr;  padding: 0 1; }
+#hdr-clock  { width: 14;   content-align: right middle; padding-right: 1; }
+#hdr-status { width: 10;   content-align: right middle; padding-right: 1; }
+
+/* Bottom row — secondary context */
+#hdr-delta  { width: 36;   padding: 0 1; }
+#hdr-spark  { width: 24;   min-width: 12; }
+#hdr-cash   { width: 1fr;  content-align: right middle; padding-right: 2; }
+#hdr-pnl    { width: 28;   content-align: right middle; padding-right: 1; }
 
 /* ---- Main area ---- */
 
@@ -52,7 +56,7 @@ DataTable > .datatable--header {
 }
 
 DetailPanel {
-    width: 44;
+    width: 48;
     border-left: solid $accent;
     padding: 0 1;
 }
@@ -66,6 +70,7 @@ DetailPanel.hidden {
 }
 
 #dp-title { text-style: bold; }
+#dp-body  { height: auto; }
 
 #dp-today, #dp-week {
     height: 3;

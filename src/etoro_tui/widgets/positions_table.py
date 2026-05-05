@@ -1,4 +1,10 @@
-"""Main DataTable: positions with overlay columns, sortable + filterable."""
+"""Main DataTable: aggregated-by-ticker positions, sortable + filterable.
+
+Columns kept compact and decision-relevant. News count is intentionally
+NOT here — for a 35-row table where most rows show 0/—, it eats space
+without earning it. News surfaces in the detail panel where you actually
+want it (one ticker at a time).
+"""
 from __future__ import annotations
 
 from typing import Literal
@@ -29,24 +35,13 @@ _SIG_STYLE = {
     "HOLD": ("dim", "HOLD"),
 }
 
-# (label, justify) pairs — justify drives DataTable rendering of the value cells
-_COLS: tuple[tuple[str, str], ...] = (
-    ("Symbol", "left"),
-    ("Lots",   "right"),
-    ("Units",  "right"),
-    ("Avg Open", "right"),
-    ("Now",    "right"),
-    ("Δ%",     "right"),
-    ("Value $", "right"),
-    ("P&L $",  "right"),
-    ("Sig",    "center"),
-    ("PI%",    "right"),
-    ("News",   "right"),
+_COLS: tuple[str, ...] = (
+    "Symbol", "Lots", "Units", "Avg Open", "Now", "Δ%",
+    "Value $", "% Eq", "P&L $", "Sig", "PI%",
 )
 
 
 def _fmt_units(u: float) -> Text:
-    """No scientific notation. Compact for big numbers."""
     if u >= 10_000:
         s = f"{u:,.0f}"
     elif u >= 100:
@@ -58,33 +53,23 @@ def _fmt_units(u: float) -> Text:
     return Text(s, justify="right")
 
 
-def _fmt_money(v: float) -> Text:
+def _money(v: float) -> Text:
     return Text(f"{v:,.2f}", justify="right")
 
 
-def _fmt_signal(s: str | None) -> Text:
+def _signal(s: str | None) -> Text:
     if s is None:
         return Text("—", style="dim", justify="center")
     style, label = _SIG_STYLE.get(s, ("", str(s)))
     return Text(label, style=style, justify="center")
 
 
-def _fmt_pi(p: float | None) -> Text:
+def _pi(p: float | None) -> Text:
     if p is None:
         return Text("—", style="dim", justify="right")
     if p < 0.5:
         return Text("<1%", style="dim", justify="right")
     return Text(f"{p:.0f}%", justify="right")
-
-
-def _fmt_news(n: int | None, anomaly: bool) -> Text:
-    if n is None:
-        return Text("—", style="dim", justify="right")
-    if n == 0:
-        return Text("0", style="dim", justify="right")
-    label = f"▴{n}" if anomaly else f"{n}"
-    style = "yellow" if anomaly else ""
-    return Text(label, style=style, justify="right")
 
 
 def _delta_pct(pct: float) -> Text:
@@ -99,15 +84,25 @@ def _pnl(pnl: float) -> Text:
     return Text(f"{sign}{abs(pnl):,.2f}", style=color, justify="right")
 
 
+def _eq_pct(pct: float) -> Text:
+    """Bold for >=10% (concentrated), dim for <2% (dust), normal between."""
+    if pct >= 10:
+        style = "bold"
+    elif pct < 2:
+        style = "dim"
+    else:
+        style = ""
+    return Text(f"{pct:.1f}%", style=style, justify="right")
+
+
 def _lots(n: int) -> Text:
     style = "dim" if n == 1 else ""
     return Text(str(n), style=style, justify="right")
 
 
 class PositionsTable(Vertical):
-    """Container for the table + filter input."""
-
     positions: reactive[tuple[Position, ...]] = reactive(())
+    equity: reactive[float] = reactive(0.0)
     sort_key: reactive[SortKey] = reactive("value")
     filter_text: reactive[str] = reactive("")
 
@@ -117,7 +112,6 @@ class PositionsTable(Vertical):
             super().__init__()
 
     class SortChanged(Message):
-        """Posted whenever the active sort key changes — Footer listens."""
         def __init__(self, key: SortKey) -> None:
             self.key = key
             super().__init__()
@@ -128,7 +122,7 @@ class PositionsTable(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        for label, _justify in _COLS:
+        for label in _COLS:
             table.add_column(label, key=label)
         table.focus()
 
@@ -159,6 +153,9 @@ class PositionsTable(Vertical):
     def watch_positions(self, _: tuple[Position, ...]) -> None:
         self._refresh_table()
 
+    def watch_equity(self, _: float) -> None:
+        self._refresh_table()
+
     def watch_sort_key(self, key: SortKey) -> None:
         self._refresh_table()
         self.post_message(self.SortChanged(key))
@@ -183,7 +180,6 @@ class PositionsTable(Vertical):
         if key == "symbol":
             rows.sort(key=lambda p: p.symbol)
         elif key == "signal":
-            # BUY first, then SELL, then HOLD, then None — most actionable on top
             order = {"BUY": 0, "SELL": 1, "HOLD": 2, None: 3}
             rows.sort(key=lambda p: (order.get(p.signal, 4), p.symbol))
         else:
@@ -193,18 +189,20 @@ class PositionsTable(Vertical):
     def _refresh_table(self) -> None:
         table = self.query_one(DataTable)
         table.clear()
+        eq = self.equity if self.equity > 0 else 0
         for p in self._sorted_filtered_positions():
+            pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
             table.add_row(
                 Text(p.symbol, style="bold"),
                 _lots(p.position_count),
                 _fmt_units(p.units),
-                _fmt_money(p.open_rate),
-                _fmt_money(p.current_rate),
+                _money(p.open_rate),
+                _money(p.current_rate),
                 _delta_pct(p.pnl_pct),
-                _fmt_money(p.value),
+                _money(p.value),
+                _eq_pct(pct_eq),
                 _pnl(p.pnl),
-                _fmt_signal(p.signal),
-                _fmt_pi(p.pi_pct),
-                _fmt_news(p.news_24h, p.news_anomaly),
+                _signal(p.signal),
+                _pi(p.pi_pct),
                 key=str(p.position_id),
             )

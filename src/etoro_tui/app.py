@@ -202,6 +202,13 @@ class EtoroTuiApp(App[None]):
 
     async def on_mount(self) -> None:
         self._db = storage.init_db(config.SNAPSHOT_DB_PATH)
+        # Bootstrap today's reference equity from snapshot history so the
+        # "today's Δ" doesn't start at 0% every session. We use the oldest
+        # snapshot in the trailing 24h as a proxy for "yesterday's close".
+        self._opening_equity_today = self._bootstrap_today_baseline()
+        # Show the detail panel from launch so the portfolio overview is visible.
+        self.query_one(DetailPanel).remove_class("hidden")
+        self._show_detail = True
         self._render_state()
         if self._disable_polling:
             return
@@ -262,6 +269,8 @@ class EtoroTuiApp(App[None]):
         positions = _aggregate_by_symbol(positions_list)
 
         acct = _account_from(positions, credit)
+        # If snapshot DB had no history at startup, use first live equity as a
+        # last-resort baseline. Subsequent sessions will pick up from snapshots.
         if self._opening_equity_today is None:
             self._opening_equity_today = acct.equity
 
@@ -317,6 +326,7 @@ class EtoroTuiApp(App[None]):
         header.account = self._state.account
         header.status = self._state.status
         header.sparkline_values = self._state.equity_sparkline
+        equity_now = self._state.account.equity if self._state.account else 0.0
         if self._state.account is not None:
             header.open_pnl = self._state.account.unrealized
             if self._opening_equity_today is not None:
@@ -324,9 +334,34 @@ class EtoroTuiApp(App[None]):
                 pct = (delta / self._opening_equity_today * 100
                        if self._opening_equity_today else 0)
                 header.today_delta = (delta, pct)
-        self.query_one(PositionsTable).positions = self._state.positions
+                header.today_baseline_known = True
+            else:
+                header.today_baseline_known = False
+        # Push positions + equity to widgets that need both for context.
+        table = self.query_one(PositionsTable)
+        table.equity = equity_now
+        table.positions = self._state.positions
+        panel = self.query_one(DetailPanel)
+        panel.equity = equity_now
+        panel.all_positions = self._state.positions
         footer = self.query_one(Footer)
         footer.last_error = self._state.last_error
+
+    def _bootstrap_today_baseline(self) -> Optional[float]:
+        """Return a 'reference equity' for today's Δ from snapshot history.
+
+        Strategy: oldest snapshot in the trailing 24h. This approximates
+        'yesterday's close' continuously and survives sessions. Returns None
+        if there's no snapshot history yet (first run).
+        """
+        if self._db is None:
+            return None
+        row = self._db.execute(
+            "SELECT equity FROM equity_snapshots "
+            "WHERE ts > datetime('now', '-24 hours') "
+            "ORDER BY ts ASC LIMIT 1"
+        ).fetchone()
+        return float(row[0]) if row else None
 
     def _set_error(self, msg: str, status: Status) -> None:
         self._state = AppState(
