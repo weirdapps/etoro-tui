@@ -34,8 +34,16 @@ Header {
     layout: horizontal;
 }
 
+/* Fill the full main area vertically — without these, the inner widgets
+ * collapse to their content size and a tall terminal shows huge empty
+ * space below the data. */
 PositionsTable {
     width: 1fr;
+    height: 1fr;
+}
+
+PositionsTable > DataTable {
+    height: 1fr;
 }
 
 DataTable > .datatable--cursor {
@@ -50,6 +58,7 @@ DataTable > .datatable--header {
 
 DetailPanel {
     width: 42;
+    height: 1fr;
     border-left: solid $accent;
     padding: 0 1;
 }

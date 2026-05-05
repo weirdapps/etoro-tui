@@ -60,8 +60,10 @@ class Footer(Vertical):
         widget.update(Text(f"updated {delta}s ago", style="dim"))
 
     def watch_sort_label(self, value: str) -> None:
+        # "by Value ↓" reads as a label; avoids saying "sort" twice (the key
+        # legend already has "[s] sort").
         self.query_one("#footer-sort", Static).update(
-            Text.assemble(("sort  ", "dim"), (value, "bold"))
+            Text.assemble(("by  ", "dim"), (value, "bold"))
         )
 
     def watch_prices_source(self, value: str) -> None:

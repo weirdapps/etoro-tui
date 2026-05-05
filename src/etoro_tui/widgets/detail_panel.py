@@ -230,7 +230,7 @@ class DetailPanel(Vertical):
             (ccy_note, "dim"),
             ("\n\n", ""),
             # Price + P&L block
-            ("Close  ", "dim"),
+            ("Last   ", "dim"),
             (f"${p.current_rate:,.2f}", color),
             ("    ", ""),
             (f"{sign}{abs(p.pnl_pct):.2f}%", color),
@@ -260,8 +260,8 @@ class DetailPanel(Vertical):
             ("  News 24h  ", "dim"), (news_label, news_color),
         ))
 
-        self.query_one("#dp-today-label", Static).update(Text("Close (24h)", style="dim"))
-        self.query_one("#dp-week-label", Static).update(Text("Close (7d)", style="dim"))
+        self.query_one("#dp-today-label", Static).update(Text("Last (24h)", style="dim"))
+        self.query_one("#dp-week-label", Static).update(Text("Last (7d)", style="dim"))
 
     def watch_intraday(self, vals: tuple[float, ...]) -> None:
         if self.is_mounted:
