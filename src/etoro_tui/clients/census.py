@@ -4,6 +4,11 @@ Also exposes an instrument map (instrumentID → symbol + current price) since
 the eToro Public API doesn't return symbols or current prices in its portfolio
 response. Census has both (instruments.details + instruments.priceData) so we
 piggy-back on it. Prices refresh whenever census refreshes (~daily 03:00).
+
+Source resolution:
+  1. local newest etoro-data-*.json in the configured directory (dev box)
+  2. fallback: list the data-archive branch on GitHub, pick the newest
+     filename, fetch + cache to ~/.etoro-tui/cache/
 """
 
 from __future__ import annotations
@@ -13,6 +18,8 @@ import logging
 from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
+
+from .remote_fetch import fetch_newest_census_file
 
 log = logging.getLogger(__name__)
 
@@ -40,10 +47,14 @@ class CensusReader:
         self._missing_logged = False
 
     def _newest_file(self) -> Path | None:
-        if not self.directory.exists():
-            return None
-        files = sorted(self.directory.glob(self.pattern))
-        return files[-1] if files else None
+        # Local first.
+        if self.directory.exists():
+            files = sorted(self.directory.glob(self.pattern))
+            if files:
+                return files[-1]
+        # Fallback: GitHub. The fetcher caches to ~/.etoro-tui/cache/ so we
+        # only re-download when the upstream filename changes (~daily).
+        return fetch_newest_census_file()
 
     def _refresh_if_stale(self) -> bool:
         """Return True if cache is populated (either fresh or already cached)."""

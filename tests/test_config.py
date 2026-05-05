@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import pytest
 
 from etoro_tui import config
@@ -22,10 +20,20 @@ def test_credentials_source_env(monkeypatch):
 def test_credentials_missing_raises(monkeypatch):
     monkeypatch.delenv("ETORO_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("ETORO_USER_KEY", raising=False)
-    # Mock the keychain shell-out to fail
-    with patch("etoro_tui.config._keychain_lookup", return_value=None):
-        with pytest.raises(config.AuthMissingError):
-            config.get_credentials()
+    # Bypass any .env file the user might have on the dev machine.
+    monkeypatch.setattr(config, "_ENVFILE", {})
+    with pytest.raises(config.AuthMissingError):
+        config.get_credentials()
+
+
+def test_credentials_from_envfile(monkeypatch):
+    monkeypatch.delenv("ETORO_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("ETORO_USER_KEY", raising=False)
+    monkeypatch.setattr(config, "_ENVFILE",
+                        {"ETORO_PUBLIC_KEY": "pk_file", "ETORO_USER_KEY": "uk_file"})
+    pk, uk = config.get_credentials()
+    assert (pk, uk) == ("pk_file", "uk_file")
+    assert config.get_credentials_source() == "envfile"
 
 
 def test_paths_are_absolute():
@@ -38,3 +46,11 @@ def test_intervals_are_positive():
     assert config.POLL_PORTFOLIO_S > 0
     assert config.POLL_SIGNALS_S > 0
     assert config.SNAPSHOT_S > 0
+
+
+def test_get_indices_default():
+    """Without a TOML override, the default 5-index list is returned."""
+    out = config.get_indices()
+    assert len(out) >= 3
+    assert all(isinstance(t, tuple) and len(t) == 2 for t in out)
+    assert ("S&P 500", "SPX500") in out

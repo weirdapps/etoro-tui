@@ -40,24 +40,14 @@ from .widgets.positions_table import PositionsTable, SORT_LABELS
 log = logging.getLogger(__name__)
 
 
-# Major indices to surface in the detail panel. eToro CFD indices give
-# the actual index level (5,432 for S&P 500), not an ETF proxy ($540 for
-# SPY). Curated for an Athens-based PI account with US-heavy holdings.
-# (display_name, eToro_symbolFull) — IDs resolved at runtime via census.
-INDICES: tuple[tuple[str, str], ...] = (
-    ("S&P 500",   "SPX500"),
-    ("NASDAQ",    "NSDQ100"),
-    ("Dow 30",    "DJ30"),
-    ("EuroStx50", "EUSTX50"),
-    ("Greek ETF", "LYXGRE.DE"),  # ATHEX index not in eToro; ETF proxy instead
-)
-
-
 def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str, int]]:
-    """Map our display-name list to (display_name, instrumentId) pairs that
-    actually exist in the census."""
+    """Map the configured display-name list to (display_name, instrumentId)
+    pairs that actually exist in the census. The list comes from the user's
+    TOML config or falls back to a curated default in config.DEFAULT_INDICES."""
     sym_to_id = {info.symbol.upper(): inst_id for inst_id, info in instruments.items()}
-    return [(name, sym_to_id[sym]) for name, sym in INDICES if sym in sym_to_id]
+    return [(name, sym_to_id[sym.upper()])
+            for name, sym in config.get_indices()
+            if sym.upper() in sym_to_id]
 
 
 def _build_indices(
@@ -330,6 +320,11 @@ class EtoroTuiApp(App[None]):
         self.query_one(DetailPanel).remove_class("hidden")
         self._show_detail = True
         self._render_state()
+        # Demo mode: __main__.py attaches synthetic indices + actions before run().
+        if hasattr(self, "_demo_indices"):
+            panel = self.query_one(DetailPanel)
+            panel.indices = self._demo_indices
+            panel.actions = self._demo_actions
         if self._disable_polling:
             return
         # Auth-required: build client now if not injected.

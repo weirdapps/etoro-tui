@@ -98,6 +98,12 @@ def _build_body(
     parts.append(("  Snapshot DB   ", "dim"))
     parts.append((f"{snapshot_db}\n", ""))
 
+    parts.append(("\nDisclaimer\n", "bold cyan"))
+    parts.append(("  Unofficial open-source tool. Not affiliated with eToro.\n", "dim"))
+    parts.append(("  Not financial advice. Use at your own risk.\n", "dim"))
+    parts.append(("  Numbers may differ from your eToro app — verify there\n", "dim"))
+    parts.append(("  before any trading decision.\n", "dim"))
+
     parts.append(("\nPress ", "dim"))
     parts.append(("?", "bold cyan"))
     parts.append((" or ", "dim"))

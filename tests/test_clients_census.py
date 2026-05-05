@@ -4,7 +4,18 @@ import json
 import time
 from pathlib import Path
 
+import pytest
+
+from etoro_tui.clients import census as census_module
 from etoro_tui.clients.census import CensusReader, InstrumentInfo
+
+
+@pytest.fixture(autouse=True)
+def _disable_github_fallback(monkeypatch):
+    """Tests must not hit the network. Force the GitHub fallback to no-op so
+    'no local file' actually means 'no data', not 'live download from
+    weirdapps/etoro_census'."""
+    monkeypatch.setattr(census_module, "fetch_newest_census_file", lambda: None)
 
 
 def test_aggregates_pi_holdings(tmp_census_dir: Path):

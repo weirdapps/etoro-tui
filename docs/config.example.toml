@@ -1,0 +1,37 @@
+# etoro-tui configuration — copy to ~/.etoro-tui/config.toml and edit.
+# Every section is optional; missing keys fall back to baked-in defaults.
+
+# -- Indices shown in the detail panel ---------------------------------------
+# Each entry is [display_name, eToro_symbol_or_CFD_code].
+# eToro CFD indices (SPX500, NSDQ100, DJ30, EUSTX50, GER40, FRA40, UK100,
+# JPN225, HKG50) give actual index levels. Use ETF tickers (SPY, QQQ, EZU,
+# LYXGRE.DE) when no native index is exposed.
+[indices]
+list = [
+  ["S&P 500",    "SPX500"],
+  ["NASDAQ",     "NSDQ100"],
+  ["Dow 30",     "DJ30"],
+  ["EuroStx50",  "EUSTX50"],
+  ["DAX",        "GER40"],
+  ["FTSE",       "UK100"],
+  ["Nikkei",     "JPN225"],
+  ["Hang Seng",  "HKG50"],
+]
+
+# -- Local file paths --------------------------------------------------------
+# By default these point at the project author's dev box. If you don't have
+# the source repos, leave them blank and etoro-tui will fall back to GitHub
+# raw downloads (cached for 6h at ~/.etoro-tui/cache/).
+#
+# news_db has no public mirror — set it only if you run news-reader yourself.
+[paths]
+# signals_csv = "~/SourceCode/etorotrade/yahoofinance/output/etoro.csv"
+# census_dir  = "~/SourceCode/etoro_census/archive/data"
+# news_db     = "~/SourceCode/news/data/news.db"
+# snapshot_db = "~/.etoro-tui/snapshots.db"
+
+# -- Refresh cadences (seconds) — usually no need to override ---------------
+# [intervals]
+# poll_portfolio = 5
+# poll_signals   = 30
+# snapshot       = 60

@@ -4,9 +4,12 @@ Two methods, both served from a single parse:
   - read()         → {symbol: BUY/SELL/HOLD/None}  (legacy thin API)
   - fundamentals() → {symbol: Fundamentals(signal, pe_t, pe_f, upside_pct, …)}
 
-CSV refresh cadence: daily at ~22:00 UTC by GitHub Actions in the etorotrade
-repo. The CSV is overwritten in place; we mtime-cache and re-parse only when
-it changes.
+Source resolution:
+  1. local CSV at the configured path (the project author's dev box)
+  2. fallback: fetch the same CSV from etorotrade's public GitHub raw URL
+     and cache it at ~/.etoro-tui/cache/etoro.csv (re-fetched every 6h)
+
+CSV refresh cadence (upstream): daily at ~22:00 UTC by GitHub Actions.
 """
 from __future__ import annotations
 
@@ -15,7 +18,9 @@ import logging
 from pathlib import Path
 from typing import NamedTuple, Optional
 
+from .. import config
 from ..models import Signal
+from .remote_fetch import fetch_to_cache
 
 
 _BS_MAP: dict[str, Optional[Signal]] = {
@@ -65,15 +70,30 @@ class SignalsReader:
         self._cache_mtime: float | None = None
         self._missing_logged = False
 
+    def _resolve_path(self) -> Path | None:
+        """Local first, GitHub raw fallback (cached for 6h)."""
+        if self.path.exists():
+            return self.path
+        cached = fetch_to_cache(
+            url=config.SIGNALS_GITHUB_URL,
+            cache_name="etoro.csv",
+            max_age_seconds=6 * 3600,
+        )
+        if cached is None and not self._missing_logged:
+            log.warning("signals CSV unavailable (local %s missing, GitHub fetch failed)",
+                        self.path)
+            self._missing_logged = True
+        return cached
+
     def _refresh_if_stale(self) -> bool:
-        if not self.path.exists():
-            if not self._missing_logged:
-                log.info("signals CSV not found at %s", self.path)
-                self._missing_logged = True
+        path = self._resolve_path()
+        if path is None:
             return False
-        mtime = self.path.stat().st_mtime
+        mtime = path.stat().st_mtime
         if self._cache_mtime == mtime:
             return True
+        # Use the resolved (possibly cached) path for parsing.
+        self.path = path
         signals: dict[str, Optional[Signal]] = {}
         fundamentals: dict[str, Fundamentals] = {}
         with self.path.open(newline="") as f:

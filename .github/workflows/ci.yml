@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install package + dev deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Run pytest
+        run: pytest -v
+
+      - name: Boot smoke test (TUI starts and exits cleanly)
+        run: |
+          python - <<'PY'
+          import asyncio
+          from etoro_tui.app import EtoroTuiApp
+          async def go():
+              app = EtoroTuiApp(disable_polling=True)
+              async with app.run_test() as pilot:
+                  await pilot.pause()
+                  for k in ("s", "/", "escape", "?", "escape", "q"):
+                      await pilot.press(k)
+                      await pilot.pause()
+          asyncio.run(go())
+          print("smoke OK")
+          PY
+
+      - name: Demo mode boot test
+        run: |
+          python - <<'PY'
+          import asyncio
+          from etoro_tui.demo import build_demo_state, build_demo_indices, build_demo_actions
+          from etoro_tui.app import EtoroTuiApp
+          async def go():
+              app = EtoroTuiApp(initial_state=build_demo_state(), disable_polling=True)
+              app._demo_indices = build_demo_indices()
+              app._demo_actions = build_demo_actions(app._state)
+              async with app.run_test() as pilot:
+                  await pilot.pause()
+          asyncio.run(go())
+          print("demo OK")
+          PY
