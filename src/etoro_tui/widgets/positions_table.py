@@ -22,7 +22,7 @@ _SIG_STYLE = {
 }
 
 _COLS = (
-    "Symbol", "Units", "Open", "Now", "Δ%", "Value", "P&L €",
+    "Symbol", "Pos", "Units", "Open", "Now", "Δ%", "Value", "P&L €",
     "Sig", "PI%", "News",
 )
 
@@ -139,6 +139,7 @@ class PositionsTable(Vertical):
         for p in self._sorted_filtered_positions():
             table.add_row(
                 p.symbol,
+                str(p.position_count),
                 f"{p.units:g}",
                 f"{p.open_rate:,.2f}",
                 f"{p.current_rate:,.2f}",

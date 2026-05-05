@@ -37,8 +37,9 @@ class DetailPanel(Vertical):
             self.query_one("#dp-week", Sparkline).data = []
             return
         title.update(f"{p.symbol}")
+        lots = f"{p.position_count} lot{'s' if p.position_count != 1 else ''}"
         self.query_one("#dp-position", Static).update(
-            f"#{p.position_id} · {p.direction} · {p.units:g} units @ {p.open_rate:,.2f}"
+            f"{lots} · {p.direction} · {p.units:g} units @ avg {p.open_rate:,.2f}"
         )
         sign = "+" if p.pnl >= 0 else "−"
         color = "green" if p.pnl >= 0 else "red"

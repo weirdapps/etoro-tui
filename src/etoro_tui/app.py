@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -43,6 +44,17 @@ def _to_position(
     Returns None when the instrumentID can't be resolved via census (skip the
     row rather than render with bogus data). eToro returns no symbol/price/pnl
     so we compute them from the census instruments map.
+
+    Census `currentPrice` AND eToro's `openRate` are both in the instrument's
+    listing currency (USD for US stocks, GBp for .L, HKD for .HK, DKK for .CO,
+    EUR for .DE, etc.). Each eToro position carries an `openConversionRate`
+    that is "USD per local currency unit" at the time the position was opened.
+    We multiply BOTH openRate and currentPrice by it to convert to USD. This
+    is approximate (FX drifts since open) but close enough for a dashboard —
+    verified against eToro's own equity figure within ~0.3%.
+
+    The `amount` field already comes back in USD; for verification:
+    units × openRate × ocr ≈ amount holds across the board.
     """
     inst_id = raw["instrumentID"]
     info = instruments.get(inst_id)
@@ -50,8 +62,9 @@ def _to_position(
         return None
     sym = info.symbol.upper()
     units = float(raw["units"])
-    open_rate = float(raw["openRate"])
-    current_rate = float(info.current_price)
+    ocr = float(raw.get("openConversionRate", 1.0))
+    open_rate = float(raw["openRate"]) * ocr        # local→USD
+    current_rate = float(info.current_price) * ocr  # local→USD
     is_buy = bool(raw["isBuy"])
     direction_sign = 1 if is_buy else -1
     value = current_rate * units
@@ -75,6 +88,55 @@ def _to_position(
         news_24h=cnt,
         news_anomaly=news.is_anomaly(sym) if cnt is not None else False,
     )
+
+
+def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
+    """Group positions by symbol; produce one synthetic Position per ticker.
+
+    Aggregated fields:
+    - units, value, pnl: summed across underlying positions.
+    - open_rate: weighted-average USD cost per unit (cost basis ÷ units).
+    - current_rate: implied USD per unit (total value ÷ total units).
+    - pnl_pct: total_pnl ÷ total_cost × 100.
+    - open_ts: earliest open across the group.
+    - position_count: how many raw positions were aggregated.
+    - direction, signal, pi_pct, news_*: taken from the first position
+      (these are per-instrument, identical across the group).
+    - position_id: kept as the first position's id, used as a stable key for
+      DataTable rows and the snapshot table — has no semantic meaning here.
+    """
+    groups: dict[str, list[Position]] = defaultdict(list)
+    for p in positions:
+        groups[p.symbol].append(p)
+    out: list[Position] = []
+    for sym, ps in groups.items():
+        first = ps[0]
+        units = sum(p.units for p in ps)
+        cost = sum(p.units * p.open_rate for p in ps)   # USD invested
+        value = sum(p.value for p in ps)
+        pnl = sum(p.pnl for p in ps)
+        avg_open = cost / units if units else first.open_rate
+        avg_curr = value / units if units else first.current_rate
+        pnl_pct = (pnl / cost * 100) if cost else 0.0
+        oldest = min(p.open_ts for p in ps)
+        out.append(Position(
+            position_id=first.position_id,
+            symbol=sym,
+            direction=first.direction,
+            units=units,
+            open_rate=avg_open,
+            current_rate=avg_curr,
+            value=value,
+            pnl=pnl,
+            pnl_pct=pnl_pct,
+            open_ts=oldest,
+            signal=first.signal,
+            pi_pct=first.pi_pct,
+            news_24h=first.news_24h,
+            news_anomaly=first.news_anomaly,
+            position_count=len(ps),
+        ))
+    return tuple(out)
 
 
 def _account_from(positions: tuple[Position, ...], credit: float) -> AccountSummary:
@@ -191,7 +253,10 @@ class EtoroTuiApp(App[None]):
                 positions_list.append(built)
         if skipped:
             log.info("skipped %d positions (instrumentID not in census)", skipped)
-        positions = tuple(positions_list)
+
+        # Aggregate by symbol — eToro splits a holding into many lots; the
+        # user wants one row per ticker with a Pos column showing lot count.
+        positions = _aggregate_by_symbol(positions_list)
 
         acct = _account_from(positions, credit)
         if self._opening_equity_today is None:

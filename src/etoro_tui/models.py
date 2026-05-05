@@ -28,6 +28,7 @@ class Position:
     pi_pct: Optional[float] = None         # 0.0–100.0
     news_24h: Optional[int] = None
     news_anomaly: bool = False             # True when count > 1.5 × 7d avg
+    position_count: int = 1                # >1 when this row aggregates several raw positions
 
 
 @dataclass(frozen=True)
