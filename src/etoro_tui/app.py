@@ -27,7 +27,8 @@ from .models import AccountSummary, AppState, Position, Status
 from .widgets.detail_panel import DetailPanel
 from .widgets.footer import Footer
 from .widgets.header import Header
-from .widgets.positions_table import PositionsTable
+from .widgets.help_modal import HelpModal
+from .widgets.positions_table import PositionsTable, SORT_LABELS
 
 log = logging.getLogger(__name__)
 
@@ -156,6 +157,8 @@ class EtoroTuiApp(App[None]):
     """Top-level Textual app."""
 
     CSS_PATH = "styles.tcss"
+    TITLE = "etoro-tui"
+    SUB_TITLE = "live portfolio"
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
@@ -352,13 +355,21 @@ class EtoroTuiApp(App[None]):
         panel.set_class(not self._show_detail, "hidden")
 
     def action_help(self) -> None:
-        # v1 — help via footer briefly
-        self._set_error(
-            "keys: ↑↓ select · enter detail · s sort · / filter · r refresh · q quit",
-            self._state.status,
-        )
+        try:
+            source = config.get_credentials_source()
+        except Exception:
+            source = "unknown"
+        self.push_screen(HelpModal(
+            auth_source=source,
+            snapshot_db=str(config.SNAPSHOT_DB_PATH),
+        ))
 
     # ------- messages -------
+
+    def on_positions_table_sort_changed(
+        self, message: PositionsTable.SortChanged
+    ) -> None:
+        self.query_one(Footer).sort_label = SORT_LABELS.get(message.key, str(message.key))
 
     def on_positions_table_position_selected(
         self, message: PositionsTable.PositionSelected

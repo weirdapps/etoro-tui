@@ -2,6 +2,7 @@
 """Right-side panel: deep-dive on selected position."""
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.reactive import reactive
@@ -30,30 +31,73 @@ class DetailPanel(Vertical):
     def watch_position(self, p: Position | None) -> None:
         title = self.query_one("#dp-title", Static)
         if p is None:
-            title.update("Select a position")
+            title.update(Text("Select a position", style="dim"))
             for sel in ("#dp-position", "#dp-now", "#dp-overlay"):
                 self.query_one(sel, Static).update("")
             self.query_one("#dp-today", Sparkline).data = []
             self.query_one("#dp-week", Sparkline).data = []
             return
-        title.update(f"{p.symbol}")
-        lots = f"{p.position_count} lot{'s' if p.position_count != 1 else ''}"
+
+        title.update(Text(p.symbol, style="bold cyan"))
+
+        # Position line: "3 lots · Buy · 50 units @ avg $123.45" — drop "avg" when single lot
+        lots_text = f"{p.position_count} lots" if p.position_count > 1 else "1 lot"
+        avg_word = "avg " if p.position_count > 1 else ""
         self.query_one("#dp-position", Static).update(
-            f"{lots} · {p.direction} · {p.units:g} units @ avg {p.open_rate:,.2f}"
+            Text.assemble(
+                (lots_text, "dim"),
+                ("  ·  ", "dim"),
+                (p.direction, "green" if p.direction == "Buy" else "red"),
+                ("  ·  ", "dim"),
+                (f"{p.units:,.4f}".rstrip("0").rstrip("."), ""),
+                (" units @ ", "dim"),
+                (f"{avg_word}${p.open_rate:,.2f}", ""),
+            )
         )
+
         sign = "+" if p.pnl >= 0 else "−"
         color = "green" if p.pnl >= 0 else "red"
         self.query_one("#dp-now", Static).update(
-            f"Now [{color}]{p.current_rate:,.2f}[/{color}]   "
-            f"Δopen [{color}]{sign}{abs(p.pnl_pct):.2f}%[/{color}] "
-            f"([{color}]{sign}€{abs(p.pnl):,.2f}[/{color}])   "
-            f"Value €{p.value:,.2f}"
+            Text.assemble(
+                ("Now  ", "dim"),
+                (f"${p.current_rate:,.2f}", color),
+                ("  ·  ", "dim"),
+                (f"{sign}{abs(p.pnl_pct):.2f}%", color),
+                ("  ", "dim"),
+                (f"({sign}${abs(p.pnl):,.2f})", color),
+                ("\n", ""),
+                ("Value  ", "dim"),
+                (f"${p.value:,.2f}", "bold"),
+            )
         )
-        sig = "—" if p.signal is None else p.signal
-        pi = "—" if p.pi_pct is None else f"{p.pi_pct:.0f}%"
-        news = "—" if p.news_24h is None else f"{p.news_24h}{' ▴' if p.news_anomaly else ''}"
+
+        sig_text = "—" if p.signal is None else p.signal
+        sig_color = {"BUY": "green", "SELL": "red", "HOLD": "dim"}.get(p.signal or "", "dim")
+        if p.pi_pct is None:
+            pi_text, pi_color = "—", "dim"
+        elif p.pi_pct < 0.5:
+            pi_text, pi_color = "<1%", "dim"
+        else:
+            pi_text, pi_color = f"{p.pi_pct:.0f}%", ""
+        if p.news_24h is None:
+            news_text, news_color = "—", "dim"
+        elif p.news_24h == 0:
+            news_text, news_color = "0", "dim"
+        else:
+            news_text = f"{p.news_24h} ▴" if p.news_anomaly else str(p.news_24h)
+            news_color = "yellow" if p.news_anomaly else ""
         self.query_one("#dp-overlay", Static).update(
-            f"Signal {sig}   Census {pi} of PIs hold   News (24h) {news}"
+            Text.assemble(
+                ("Signal  ", "dim"),
+                (sig_text, sig_color),
+                ("    ", ""),
+                ("Census  ", "dim"),
+                (pi_text, pi_color),
+                (" of PIs", "dim"),
+                ("    ", ""),
+                ("News 24h  ", "dim"),
+                (news_text, news_color),
+            )
         )
 
     def watch_intraday(self, vals: tuple[float, ...]) -> None:

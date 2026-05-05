@@ -1,20 +1,36 @@
-/* src/etoro_tui/styles.tcss */
+/* src/etoro_tui/styles.tcss
+ *
+ * Layout (top → bottom):
+ *   Header — 1 row, equity / Δ / sparkline / cash / P&L / clock / status dot
+ *   #main  — 1fr, PositionsTable + DetailPanel side-by-side
+ *   Footer — 1 row legend + sort + last-fetch, optional error banner below
+ */
 
 Screen {
     layout: vertical;
 }
 
+/* ---- Header ---- */
+
 Header {
     height: 1;
+    background: $panel;
 }
 
 Header > Static {
     margin: 0 1;
+    height: 1;
 }
 
-#hdr-spark {
-    width: 14;
-}
+#hdr-equity { width: 28; }
+#hdr-delta  { width: 36; }
+#hdr-spark  { width: 22; min-width: 14; }
+#hdr-cash   { width: 22; }
+#hdr-pnl    { width: 26; }
+#hdr-clock  { width: 14; content-align: right middle; }
+#hdr-status { width: 8;  content-align: right middle; }
+
+/* ---- Main area ---- */
 
 #main {
     height: 1fr;
@@ -25,34 +41,79 @@ PositionsTable {
     width: 1fr;
 }
 
+DataTable > .datatable--cursor {
+    background: $accent 30%;
+}
+
+DataTable > .datatable--header {
+    background: $panel;
+    color: $text;
+    text-style: bold;
+}
+
 DetailPanel {
-    width: 40;
+    width: 44;
     border-left: solid $accent;
     padding: 0 1;
+}
+
+DetailPanel > Static {
+    margin: 0 0 1 0;
 }
 
 DetailPanel.hidden {
     display: none;
 }
 
+#dp-title { text-style: bold; }
+
+#dp-today, #dp-week {
+    height: 3;
+    margin-bottom: 1;
+}
+
+#dp-today-label, #dp-week-label {
+    color: $text-muted;
+    margin-bottom: 0;
+}
+
+/* ---- Footer ---- */
+
 #footer-bar {
     height: 1;
     layout: horizontal;
+    background: $panel;
 }
 
-#footer-legend {
-    width: 1fr;
-}
-
-#footer-fetch {
-    width: auto;
-}
+#footer-legend { width: auto; margin-left: 1; }
+#footer-sort   { width: auto; margin: 0 2; }
+#footer-fetch  { width: 1fr; content-align: right middle; margin-right: 1; }
 
 #footer-error {
     height: auto;
-    color: $error;
+    background: $error 20%;
+    color: $text;
+    padding: 0 1;
 }
 
 Input.hidden {
     display: none;
+}
+
+Input {
+    margin: 0 1;
+}
+
+/* ---- Help modal ---- */
+
+HelpModal {
+    align: center middle;
+}
+
+#help-box {
+    width: 60;
+    height: auto;
+    border: thick $accent;
+    background: $panel;
+    padding: 1 2;
 }
