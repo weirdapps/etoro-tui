@@ -76,6 +76,7 @@ class PositionsTable(Vertical):
         table = self.query_one(DataTable)
         for c in _COLS:
             table.add_column(c, key=c)
+        table.focus()
 
     def cycle_sort(self) -> None:
         idx = _SORT_CYCLE.index(self.sort_key)
@@ -91,6 +92,7 @@ class PositionsTable(Vertical):
         f.add_class("hidden")
         f.value = ""
         self.filter_text = ""
+        self.query_one(DataTable).focus()
 
     def on_input_changed(self, event: Input.Changed) -> None:
         if event.input.id == "filter":

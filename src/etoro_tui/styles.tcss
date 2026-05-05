@@ -1,0 +1,58 @@
+/* src/etoro_tui/styles.tcss */
+
+Screen {
+    layout: vertical;
+}
+
+Header {
+    height: 1;
+}
+
+Header > Static {
+    margin: 0 1;
+}
+
+#hdr-spark {
+    width: 14;
+}
+
+#main {
+    height: 1fr;
+    layout: horizontal;
+}
+
+PositionsTable {
+    width: 1fr;
+}
+
+DetailPanel {
+    width: 40;
+    border-left: solid $accent;
+    padding: 0 1;
+}
+
+DetailPanel.hidden {
+    display: none;
+}
+
+#footer-bar {
+    height: 1;
+    layout: horizontal;
+}
+
+#footer-legend {
+    width: 1fr;
+}
+
+#footer-fetch {
+    width: auto;
+}
+
+#footer-error {
+    height: auto;
+    color: $error;
+}
+
+Input.hidden {
+    display: none;
+}
