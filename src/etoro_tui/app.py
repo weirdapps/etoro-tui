@@ -321,7 +321,10 @@ class EtoroTuiApp(App[None]):
 
         spark = ()
         if self._db is not None:
-            spark = storage.read_equity_sparkline(self._db, hours=24, max_points=80)
+            # Last 4 hours @ 1-min cadence = ~240 points downsampled to width.
+            # Short window keeps any pre-fix-era polluted snapshots from
+            # dominating the min-max scale and producing a single solid bar.
+            spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
 
         # Status reflects rates-fetch outcome too: live only when prices
         # are also live; degraded when we fell back to census silently.
@@ -477,11 +480,14 @@ class EtoroTuiApp(App[None]):
         panel = self.query_one(DetailPanel)
         panel.position = message.position
         if message.position is not None and self._db is not None:
+            # 4h intraday + 24h overview. Wider windows produced solid blocks
+            # because few snapshots had accumulated and any old data with
+            # different magnitude blew up the min-max scale.
             spark = storage.read_position_sparkline(
-                self._db, message.position.symbol, hours=24, max_points=40
+                self._db, message.position.symbol, hours=4, max_points=40
             )
             panel.intraday = spark
             week = storage.read_position_sparkline(
-                self._db, message.position.symbol, hours=24 * 7, max_points=40
+                self._db, message.position.symbol, hours=24, max_points=40
             )
             panel.seven_day = week

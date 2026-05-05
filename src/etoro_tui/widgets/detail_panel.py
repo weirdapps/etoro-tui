@@ -260,8 +260,8 @@ class DetailPanel(Vertical):
             ("  News 24h  ", "dim"), (news_label, news_color),
         ))
 
-        self.query_one("#dp-today-label", Static).update(Text("Last (24h)", style="dim"))
-        self.query_one("#dp-week-label", Static).update(Text("Last (7d)", style="dim"))
+        self.query_one("#dp-today-label", Static).update(Text("Last 4h", style="dim"))
+        self.query_one("#dp-week-label", Static).update(Text("Last 24h", style="dim"))
 
     def watch_intraday(self, vals: tuple[float, ...]) -> None:
         if self.is_mounted:

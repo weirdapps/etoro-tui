@@ -69,6 +69,7 @@ class Header(Horizontal):
         yield Static("", id="hdr-equity")
         yield Static("", id="hdr-delta")
         yield Sparkline([], id="hdr-spark", summary_function=max)
+        yield Static("", id="hdr-fill")  # absorbs leftover horizontal space
         yield Static("", id="hdr-cash")
         yield Static("", id="hdr-pnl")
         yield Static("", id="hdr-clock")

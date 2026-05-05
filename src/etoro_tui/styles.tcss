@@ -21,7 +21,8 @@ Header {
 
 #hdr-equity { width: 18;  padding-left: 1; }                 /* $100,000.00 */
 #hdr-delta  { width: 32;  padding-left: 2; }                 /* ▲ +$500 (+0.26%) today */
-#hdr-spark  { width: 1fr; min-width: 10; padding-left: 2; }
+#hdr-spark  { width: 24;  padding-left: 2; padding-right: 2; }
+#hdr-fill   { width: 1fr; }                                  /* eats leftover space */
 #hdr-cash   { width: 16;  content-align: right middle; padding-right: 2; }
 #hdr-pnl    { width: 16;  content-align: right middle; padding-right: 2; }
 #hdr-clock  { width: 12;  content-align: right middle; padding-right: 1; }

@@ -13,7 +13,7 @@ POLL_PORTFOLIO_S = 5
 POLL_SIGNALS_S = 30
 POLL_CENSUS_S = 60
 POLL_NEWS_S = 300
-SNAPSHOT_S = 300
+SNAPSHOT_S = 60   # every minute — populates sparklines faster (was 300/5min)
 
 # Paths (all absolute)
 SNAPSHOT_DB_PATH = Path.home() / ".etoro-tui" / "snapshots.db"

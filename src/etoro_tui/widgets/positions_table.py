@@ -66,19 +66,22 @@ _SIG_STYLE = {
 # justify="right" Text actual room to right-align inside the cell.
 # Total ≈ 110 chars (excluding Symbol auto-size). Fits a 130+ col terminal
 # alongside a 48-col detail panel.
+# Column widths sized to actual data widths observed in real use.
+# Total interior width ≈ 78 chars + cell padding ≈ 91 chars. Saves ~9 cols
+# vs. previous, freeing room to widen the detail panel without scrolling.
 _COLS: tuple[tuple[str, int | None], ...] = (
-    ("Symbol",   None),
-    ("Last",        9),
-    ("Δ%",          7),
-    ("Value $",     9),   # integer ($100,000 max) — no decimals per UX call
-    ("% Eq",        6),
-    ("P&L $",      10),   # signed integer (−1,234,567)
-    ("PE-T",        6),
-    ("PE-F",        6),
-    ("Up%",         7),
-    ("Buy%",        6),
-    ("PI%",         5),
-    ("Sig",         5),
+    ("Symbol",   None),  # auto — covers AAPL through NOVO-B.CO
+    ("Last",        8),  # "1,234.56" / "81,469"
+    ("Δ%",          6),  # "+82.31"
+    ("Value $",     8),  # "1,234,56" — integer up to 7 digits
+    ("% Eq",        5),  # "9.5%"
+    ("P&L $",       9),  # "−1,234,56" signed integer
+    ("PE-T",        5),  # "131.4"
+    ("PE-F",        5),  # "78.2"
+    ("Up%",         6),  # "+103.1"
+    ("Buy%",        5),  # "100%"
+    ("PI%",         4),  # "<1%" / "39%"
+    ("Sig",         4),  # "BUY" / "HOLD" / "SELL" / "—"
 )
 
 
