@@ -44,16 +44,27 @@ PositionsTable {
 
 PositionsTable > DataTable {
     height: 1fr;
+    scrollbar-size: 1 1;       /* thin scrollbar appears when rows overflow */
+    scrollbar-background: $panel;
+    scrollbar-color: $primary-darken-2;
 }
 
+/* Subtle navy cursor highlight + bold text. Hardcoded to avoid theme
+ * variables resolving as orange-brown (which is what `$accent 30%` did
+ * in the user's Warp theme — the accent variable is yellow there). */
 DataTable > .datatable--cursor {
-    background: $accent 30%;
+    background: #1e3a5f;
+    text-style: bold;
 }
 
 DataTable > .datatable--header {
     background: $panel;
     color: $text;
     text-style: bold;
+}
+
+DataTable > .datatable--header-hover {
+    background: $primary-darken-2;
 }
 
 DetailPanel {
@@ -105,11 +116,15 @@ Footer {
 #footer-prices { width: auto; margin: 0 2; }
 #footer-fetch  { width: 1fr; content-align: right middle; margin-right: 1; }
 
+/* Hidden by default — the watcher in footer.py reveals it on error.
+ * Without `display: none` the auto-height row could occupy 1 line on mount
+ * before the watcher runs, stealing one ticker row. */
 #footer-error {
     height: auto;
     background: $error 20%;
     color: $text;
     padding: 0 1;
+    display: none;
 }
 
 Input.hidden {
