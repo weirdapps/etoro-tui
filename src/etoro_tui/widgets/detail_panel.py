@@ -57,6 +57,22 @@ def _signed_pct(v: float) -> tuple[str, str]:
     return f"{sign}{abs(v):.2f}%", color
 
 
+_SEPARATOR = "─" * 40   # panel inner width minus a couple chars of breathing room
+
+
+def _ticker_grid(items: tuple[str, ...] | list[str],
+                 cols: int = 3, pad: int = 10, indent: str = "    ") -> str:
+    """Render symbols in a fixed-width grid so all of them fit visibly."""
+    if not items:
+        return ""
+    lines: list[str] = []
+    for i in range(0, len(items), cols):
+        row = items[i:i + cols]
+        line = indent + "".join(s.ljust(pad) for s in row).rstrip()
+        lines.append(line)
+    return "\n".join(lines) + "\n"
+
+
 class DetailPanel(Vertical):
     """Two-mode side panel with always-on indices + actions sections."""
 
@@ -255,7 +271,11 @@ class DetailPanel(Vertical):
         if not self.indices:
             widget.update("")
             return
-        parts: list = [("\nIndices\n", "bold cyan")]
+        parts: list = [
+            ("\n", ""),
+            (_SEPARATOR + "\n", "dim"),
+            ("Indices\n", "bold cyan"),
+        ]
         for ix in self.indices:
             change_label, change_color = _signed_pct(ix.change_pct)
             parts.append((f"  {ix.name:<10}", ""))
@@ -272,6 +292,7 @@ class DetailPanel(Vertical):
             widget.update("")
             return
 
+        # Order intentionally goes positive → neutral → negative.
         rows = (
             ("Buy",  "✚", a.buy,  "green"),    # new ideas, top by upside
             ("Add",  "+", a.add,  "green"),    # held + BUY
@@ -280,18 +301,19 @@ class DetailPanel(Vertical):
             ("Sell", "✗", a.sell, "red"),      # held + SELL, ≥3% equity
         )
 
-        parts: list = [("\nActions\n", "bold cyan")]
+        parts: list = [
+            ("\n", ""),
+            (_SEPARATOR + "\n", "dim"),
+            ("Actions\n", "bold cyan"),
+        ]
         for label, icon, items, color in rows:
             count = len(items)
             count_text = f"{count:>3}" if count else "  ·"
             count_color = color if count else "dim"
             parts.append((f"  {icon} {label:<5}", "dim"))
-            parts.append((count_text + "  ", count_color))
+            parts.append((count_text + "\n", count_color))
             if items:
-                head = ", ".join(items[:3])
-                more = f" +{count - 3}" if count > 3 else ""
-                parts.append((head, ""))
-                parts.append((more + "\n", "dim"))
-            else:
-                parts.append(("\n", ""))
+                # All items, chunked into a 3-column grid so big buckets
+                # (Hold tends to have 15+) stay readable.
+                parts.append((_ticker_grid(items), "dim"))
         widget.update(Text.assemble(*parts))

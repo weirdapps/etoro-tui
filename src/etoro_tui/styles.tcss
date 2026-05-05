@@ -73,6 +73,13 @@ DetailPanel {
     height: 1fr;
     border-left: solid $accent;
     padding: 0 1;
+    /* Scroll vertically when content exceeds panel height (large portfolios
+     * have 16+ Hold tickers in the actions grid alone). */
+    overflow-y: scroll;
+    overflow-x: hidden;
+    scrollbar-size: 1 1;
+    scrollbar-background: $panel;
+    scrollbar-color: $primary-darken-2;
 }
 
 DetailPanel > Static {
