@@ -76,25 +76,18 @@ DetailPanel {
 }
 
 DetailPanel > Static {
-    margin: 0 0 1 0;
+    margin: 0;
+    height: auto;
 }
 
 DetailPanel.hidden {
     display: none;
 }
 
-#dp-title { text-style: bold; }
-#dp-body  { height: auto; }
-
-#dp-today, #dp-week {
-    height: 3;
-    margin-bottom: 1;
-}
-
-#dp-today-label, #dp-week-label {
-    color: $text-muted;
-    margin-bottom: 0;
-}
+#dp-title    { text-style: bold; }
+#dp-body     { height: auto; }
+#dp-indices  { height: auto; }
+#dp-actions  { height: auto; }
 
 /* ---- Footer ---- */
 

@@ -1,12 +1,22 @@
 """Right-side panel.
 
-When nothing selected → portfolio overview (top holdings, currency mix,
-biggest mover, concentration). This makes the panel useful at idle, not
-just when a row is highlighted.
+Two modes share the same lower sections (Indices + Actions):
 
-When a position is selected → per-ticker dossier (lots, P&L, overlays,
-sparklines). News count lives here (not in the main table) since it's
-single-ticker context, not table-scanning context.
+  Mode 1 (no row selected) — Portfolio overview:
+    title  : "Portfolio overview"
+    body   : top 5 holdings with bars + currency mix + today's movers
+    indices: live levels of S&P / NASDAQ / Dow / EuroStx50 / ATHEX
+    actions: Buy / Add / Hold / Trim / Sell tally with top symbols
+
+  Mode 2 (row selected) — Per-position dossier:
+    title  : ticker
+    body   : lots / direction / units / open price; Last + P&L; fundamentals; social
+    indices: same as overview (always-on context)
+    actions: same as overview (always-on context)
+
+Sparklines are deliberately removed — they were degenerate without a long
+snapshot history and were burning vertical space that's better spent on
+indices + action buckets.
 """
 from __future__ import annotations
 
@@ -16,9 +26,9 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.reactive import reactive
-from textual.widgets import Sparkline, Static
+from textual.widgets import Static
 
-from ..models import Position
+from ..models import ActionsSummary, IndexSummary, Position
 
 
 def _bar(pct: float, width: int = 12) -> str:
@@ -33,75 +43,74 @@ def _classify_currency(symbol: str) -> str:
         return "USD"
     suffix = symbol.rsplit(".", 1)[1]
     return {
-        "L": "GBP",
-        "DE": "EUR",
-        "PA": "EUR",
-        "MI": "EUR",
-        "AS": "EUR",
-        "MC": "EUR",
-        "VI": "EUR",
-        "BR": "EUR",
-        "LS": "EUR",
-        "HE": "EUR",
-        "ST": "SEK",
-        "OL": "NOK",
-        "CO": "DKK",
-        "HK": "HKD",
-        "T":  "JPY",
-        "TO": "CAD",
-        "AX": "AUD",
-        "SI": "SGD",
-        "TA": "ILS",
+        "L": "GBP",  "DE": "EUR", "PA": "EUR", "MI": "EUR", "AS": "EUR",
+        "MC": "EUR", "VI": "EUR", "BR": "EUR", "LS": "EUR", "HE": "EUR",
+        "ST": "SEK", "OL": "NOK", "CO": "DKK", "HK": "HKD",
+        "T":  "JPY", "TO": "CAD", "AX": "AUD", "SI": "SGD", "TA": "ILS",
     }.get(suffix, "OTHER")
 
 
+def _signed_pct(v: float) -> tuple[str, str]:
+    """('+1.23%', 'green') or ('−4.56%', 'red')."""
+    sign = "+" if v >= 0 else "−"
+    color = "green" if v >= 0 else "red"
+    return f"{sign}{abs(v):.2f}%", color
+
+
 class DetailPanel(Vertical):
-    """Renders portfolio overview OR per-position dossier."""
+    """Two-mode side panel with always-on indices + actions sections."""
 
     position: reactive[Position | None] = reactive(None)
-    intraday: reactive[tuple[float, ...]] = reactive(())
-    seven_day: reactive[tuple[float, ...]] = reactive(())
     all_positions: reactive[tuple[Position, ...]] = reactive(())
     equity: reactive[float] = reactive(0.0)
+    indices: reactive[tuple[IndexSummary, ...]] = reactive(())
+    actions: reactive[ActionsSummary | None] = reactive(None)
 
     def compose(self) -> ComposeResult:
-        # Single Static drives both modes — content swaps based on `position`.
         yield Static("", id="dp-title")
         yield Static("", id="dp-body")
-        yield Static("Today", id="dp-today-label")
-        yield Sparkline([], id="dp-today")
-        yield Static("7-day", id="dp-week-label")
-        yield Sparkline([], id="dp-week")
+        yield Static("", id="dp-indices")
+        yield Static("", id="dp-actions")
 
-    # ------- mode selection -------
+    # ------- mode dispatch -------
 
     def on_mount(self) -> None:
-        # Compose has run; safe to render with whatever reactive values exist.
-        self._repaint()
+        self._repaint_all()
 
     def watch_position(self, _: Position | None) -> None:
         if self.is_mounted:
-            self._repaint()
+            self._repaint_main()
 
     def watch_all_positions(self, _: tuple[Position, ...]) -> None:
         if self.is_mounted:
-            self._repaint()
+            self._repaint_main()
 
     def watch_equity(self, _: float) -> None:
         if self.is_mounted:
-            self._repaint()
+            self._repaint_main()
 
-    def _repaint(self) -> None:
-        # NOTE: do NOT name this `_render` — that would shadow Textual's
-        # internal Widget._render() method and break rendering entirely.
+    def watch_indices(self, _: tuple[IndexSummary, ...]) -> None:
+        if self.is_mounted:
+            self._repaint_indices()
+
+    def watch_actions(self, _: ActionsSummary | None) -> None:
+        if self.is_mounted:
+            self._repaint_actions()
+
+    def _repaint_all(self) -> None:
+        self._repaint_main()
+        self._repaint_indices()
+        self._repaint_actions()
+
+    def _repaint_main(self) -> None:
         if self.position is None:
-            self._render_portfolio()
+            self._render_overview()
         else:
             self._render_position(self.position)
 
-    # ------- mode 1: portfolio overview (idle) -------
+    # ------- mode 1: overview -------
 
-    def _render_portfolio(self) -> None:
+    def _render_overview(self) -> None:
         title = self.query_one("#dp-title", Static)
         body = self.query_one("#dp-body", Static)
         title.update(Text("Portfolio overview", style="bold cyan"))
@@ -110,64 +119,51 @@ class DetailPanel(Vertical):
         eq = self.equity
         if not positions or eq <= 0:
             body.update(Text("(awaiting data)", style="dim"))
-            for sel in ("#dp-today", "#dp-week"):
-                self.query_one(sel, Sparkline).data = []
             return
 
         positions.sort(key=lambda p: p.value, reverse=True)
         top5 = positions[:5]
-        top5_sum = sum(p.value for p in top5)
-        top5_pct = top5_sum / eq * 100
+        top5_pct = sum(p.value for p in top5) / eq * 100
 
-        # Currency mix (by USD-equivalent value)
         ccy_value: dict[str, float] = Counter()
         for p in positions:
             ccy_value[_classify_currency(p.symbol)] += p.value
         ccy_sorted = sorted(ccy_value.items(), key=lambda kv: kv[1], reverse=True)
 
-        # Biggest movers today (% terms) — use P&L% as proxy
         gainer = max(positions, key=lambda p: p.pnl_pct)
         loser = min(positions, key=lambda p: p.pnl_pct)
 
-        # Build the body Text
         parts: list = []
         parts.append(("Top 5 holdings\n", "bold"))
         for p in top5:
             pct = p.value / eq * 100
             parts.append((f"  {p.symbol:<10}", "bold"))
-            parts.append((f"  {pct:>5.1f}%  ", ""))
-            parts.append((_bar(pct, width=10), "cyan"))
-            parts.append((f"  ${p.value:>10,.0f}\n", "dim"))
-        parts.append(("\n", ""))
-        parts.append((f"  Top 5 = {top5_pct:.0f}% of equity\n", "dim"))
-        parts.append(("\n", ""))
-
-        parts.append((f"All positions  ", "bold"))
-        parts.append((f"{len(positions)} tickers\n", ""))
+            parts.append((f" {pct:>5.1f}% ", ""))
+            parts.append((_bar(pct, width=8), "cyan"))
+            parts.append((f"  ${p.value:>8,.0f}\n", "dim"))
+        parts.append((f"  Top 5 = {top5_pct:.0f}% of equity   ", "dim"))
+        parts.append((f"{len(positions)} tickers\n", "dim"))
         parts.append(("\n", ""))
 
         parts.append(("Currency mix\n", "bold"))
         for ccy, v in ccy_sorted:
             pct = v / eq * 100
             parts.append((f"  {ccy:<6}", ""))
-            parts.append((f"  {pct:>4.1f}%  ", ""))
+            parts.append((f" {pct:>5.1f}%  ", ""))
             parts.append((_bar(pct, width=8), "cyan"))
             parts.append(("\n", ""))
         parts.append(("\n", ""))
 
         parts.append(("Today's movers\n", "bold"))
-        parts.append((f"  ▲ {gainer.symbol:<8}", ""))
-        parts.append((f"{gainer.pnl_pct:+6.2f}%\n", "green"))
-        parts.append((f"  ▼ {loser.symbol:<8}", ""))
-        parts.append((f"{loser.pnl_pct:+6.2f}%\n", "red"))
-
+        gp_label, gp_color = _signed_pct(gainer.pnl_pct)
+        lp_label, lp_color = _signed_pct(loser.pnl_pct)
+        parts.append(("  ▲ ", "green"))
+        parts.append((f"{gainer.symbol:<10}", ""))
+        parts.append((gp_label + "\n", gp_color))
+        parts.append(("  ▼ ", "red"))
+        parts.append((f"{loser.symbol:<10}", ""))
+        parts.append((lp_label, lp_color))
         body.update(Text.assemble(*parts))
-
-        # Hide sparklines in portfolio mode
-        for sel in ("#dp-today", "#dp-week"):
-            self.query_one(sel, Sparkline).data = []
-        for sel in ("#dp-today-label", "#dp-week-label"):
-            self.query_one(sel, Static).update("")
 
     # ------- mode 2: per-position dossier -------
 
@@ -199,9 +195,7 @@ class DetailPanel(Vertical):
             news_color = "yellow" if p.news_anomaly else ""
 
         def _opt(v: float | None, fmt: str = "{:.1f}") -> tuple[str, str]:
-            if v is None:
-                return ("—", "dim")
-            return (fmt.format(v), "")
+            return (fmt.format(v), "") if v is not None else ("—", "dim")
 
         pet_label, pet_color = _opt(p.pe_trailing)
         pef_label, pef_color = _opt(p.pe_forward)
@@ -219,7 +213,6 @@ class DetailPanel(Vertical):
         ccy_note = f"  [{ccy}]" if ccy != "USD" else ""
 
         body.update(Text.assemble(
-            # Position structure
             (lots_text, "dim"),
             ("  ·  ", "dim"),
             (p.direction, "green" if p.direction == "Buy" else "red"),
@@ -229,20 +222,16 @@ class DetailPanel(Vertical):
             (f"{avg_word}${p.open_rate:,.2f}", ""),
             (ccy_note, "dim"),
             ("\n\n", ""),
-            # Price + P&L block
-            ("Last   ", "dim"),
-            (f"${p.current_rate:,.2f}", color),
+            ("Last   ", "dim"), (f"${p.current_rate:,.2f}", color),
             ("    ", ""),
             (f"{sign}{abs(p.pnl_pct):.2f}%", color),
             ("  ", ""),
-            (f"({sign}${abs(p.pnl):,.2f})", color),
+            (f"({sign}${abs(p.pnl):,.0f})", color),
             ("\n", ""),
-            ("Value  ", "dim"),
-            (f"${p.value:,.2f}", "bold"),
+            ("Value  ", "dim"), (f"${p.value:,.0f}", "bold"),
             ("    ", ""),
             (f"{eq_pct:.1f}% of equity", "dim"),
             ("\n\n", ""),
-            # Fundamentals block
             ("Fundamentals\n", "bold"),
             ("  PE-T  ", "dim"), (pet_label, pet_color),
             ("    PE-F  ", "dim"), (pef_label, pef_color),
@@ -252,7 +241,6 @@ class DetailPanel(Vertical):
             ("\n", ""),
             ("  Buy%  ", "dim"), (buy_label, buy_color),
             ("\n\n", ""),
-            # Social / signals
             ("Social\n", "bold"),
             ("  Sig   ", "dim"), (sig_label, sig_color),
             ("    Census  ", "dim"), (pi_label, pi_color), (" PIs", "dim"),
@@ -260,13 +248,50 @@ class DetailPanel(Vertical):
             ("  News 24h  ", "dim"), (news_label, news_color),
         ))
 
-        self.query_one("#dp-today-label", Static).update(Text("Last 4h", style="dim"))
-        self.query_one("#dp-week-label", Static).update(Text("Last 24h", style="dim"))
+    # ------- always-on: indices block -------
 
-    def watch_intraday(self, vals: tuple[float, ...]) -> None:
-        if self.is_mounted:
-            self.query_one("#dp-today", Sparkline).data = list(vals)
+    def _repaint_indices(self) -> None:
+        widget = self.query_one("#dp-indices", Static)
+        if not self.indices:
+            widget.update("")
+            return
+        parts: list = [("\nIndices\n", "bold cyan")]
+        for ix in self.indices:
+            change_label, change_color = _signed_pct(ix.change_pct)
+            parts.append((f"  {ix.name:<10}", ""))
+            parts.append((f" {ix.last:>10,.2f}  ", ""))
+            parts.append((change_label + "\n", change_color))
+        widget.update(Text.assemble(*parts))
 
-    def watch_seven_day(self, vals: tuple[float, ...]) -> None:
-        if self.is_mounted:
-            self.query_one("#dp-week", Sparkline).data = list(vals)
+    # ------- always-on: actions snapshot -------
+
+    def _repaint_actions(self) -> None:
+        widget = self.query_one("#dp-actions", Static)
+        a = self.actions
+        if a is None:
+            widget.update("")
+            return
+
+        rows = (
+            ("Buy",  "✚", a.buy,  "green"),    # new ideas, top by upside
+            ("Add",  "+", a.add,  "green"),    # held + BUY
+            ("Hold", "=", a.hold, ""),         # held + HOLD
+            ("Trim", "-", a.trim, "yellow"),   # held + SELL, small
+            ("Sell", "✗", a.sell, "red"),      # held + SELL, ≥3% equity
+        )
+
+        parts: list = [("\nActions\n", "bold cyan")]
+        for label, icon, items, color in rows:
+            count = len(items)
+            count_text = f"{count:>3}" if count else "  ·"
+            count_color = color if count else "dim"
+            parts.append((f"  {icon} {label:<5}", "dim"))
+            parts.append((count_text + "  ", count_color))
+            if items:
+                head = ", ".join(items[:3])
+                more = f" +{count - 3}" if count > 3 else ""
+                parts.append((head, ""))
+                parts.append((more + "\n", "dim"))
+            else:
+                parts.append(("\n", ""))
+        widget.update(Text.assemble(*parts))

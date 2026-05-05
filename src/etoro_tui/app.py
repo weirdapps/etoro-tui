@@ -23,7 +23,14 @@ from .clients.etoro import (
 )
 from .clients.news import NewsReader
 from .clients.signals import Fundamentals, SignalsReader
-from .models import AccountSummary, AppState, Position, Status
+from .models import (
+    AccountSummary,
+    ActionsSummary,
+    AppState,
+    IndexSummary,
+    Position,
+    Status,
+)
 from .widgets.detail_panel import DetailPanel
 from .widgets.footer import Footer
 from .widgets.header import Header
@@ -31,6 +38,91 @@ from .widgets.help_modal import HelpModal
 from .widgets.positions_table import PositionsTable, SORT_LABELS
 
 log = logging.getLogger(__name__)
+
+
+# Major indices to surface in the detail panel. eToro CFD indices give
+# the actual index level (5,432 for S&P 500), not an ETF proxy ($540 for
+# SPY). Curated for an Athens-based PI account with US-heavy holdings.
+# (display_name, eToro_symbolFull) — IDs resolved at runtime via census.
+INDICES: tuple[tuple[str, str], ...] = (
+    ("S&P 500",   "SPX500"),
+    ("NASDAQ",    "NSDQ100"),
+    ("Dow 30",    "DJ30"),
+    ("EuroStx50", "EUSTX50"),
+    ("Greek ETF", "LYXGRE.DE"),  # ATHEX index not in eToro; ETF proxy instead
+)
+
+
+def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str, int]]:
+    """Map our display-name list to (display_name, instrumentId) pairs that
+    actually exist in the census."""
+    sym_to_id = {info.symbol.upper(): inst_id for inst_id, info in instruments.items()}
+    return [(name, sym_to_id[sym]) for name, sym in INDICES if sym in sym_to_id]
+
+
+def _build_indices(
+    rates: dict[int, dict],
+    instruments: dict[int, InstrumentInfo],
+    pairs: list[tuple[str, int]],
+) -> tuple[IndexSummary, ...]:
+    """Build IndexSummary list. live=lastExecution, prev=census close."""
+    out: list[IndexSummary] = []
+    for name, inst_id in pairs:
+        rate = rates.get(inst_id)
+        info = instruments.get(inst_id)
+        if not rate or not info:
+            continue
+        try:
+            live = float(rate.get("lastExecution") or rate.get("bid") or 0)
+        except (TypeError, ValueError):
+            continue
+        prev = float(info.current_price) if info.current_price else 0.0
+        change_pct = ((live - prev) / prev * 100) if prev > 0 else 0.0
+        out.append(IndexSummary(name=name, last=live, change_pct=change_pct))
+    return tuple(out)
+
+
+def _build_actions(
+    positions: tuple[Position, ...],
+    fundamentals: dict[str, Fundamentals],
+    equity: float,
+) -> ActionsSummary:
+    """Categorise the portfolio into Buy/Add/Hold/Trim/Sell buckets.
+
+    See ActionsSummary docstring for the rule used per bucket.
+    Trim/Sell threshold = 3% of equity (small positions trimmed gradually,
+    bigger ones flagged as harder sell decisions).
+    """
+    held = {p.symbol for p in positions}
+    add: list[str] = []
+    hold: list[str] = []
+    trim: list[str] = []
+    sell: list[str] = []
+    for p in positions:
+        pct_eq = (p.value / equity * 100) if equity > 0 else 0
+        if p.signal == "BUY":
+            add.append(p.symbol)
+        elif p.signal == "HOLD":
+            hold.append(p.symbol)
+        elif p.signal == "SELL":
+            (sell if pct_eq >= 3 else trim).append(p.symbol)
+
+    # New ideas: top etorotrade BUY signals that are NOT in the portfolio,
+    # ranked by analyst-implied upside. Stop at 5 to keep the panel tight.
+    candidates: list[tuple[str, float]] = []
+    for sym, fund in fundamentals.items():
+        if fund.signal == "BUY" and sym not in held:
+            candidates.append((sym, fund.upside_pct or 0.0))
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    buy = tuple(sym for sym, _ in candidates[:5])
+
+    return ActionsSummary(
+        buy=buy,
+        add=tuple(add),
+        hold=tuple(hold),
+        trim=tuple(trim),
+        sell=tuple(sell),
+    )
 
 
 def _to_position(
@@ -277,9 +369,16 @@ class EtoroTuiApp(App[None]):
         raw_positions = portfolio.get("positions", [])
         credit = float(portfolio.get("credit", 0.0))
 
-        # Live prices for everything we hold. If this fails, we degrade
-        # gracefully to census (yesterday's close) without breaking the UI.
-        unique_ids = sorted({raw["instrumentID"] for raw in raw_positions})
+        instruments = self._census.instruments()
+        index_pairs = _resolve_index_ids(instruments)
+
+        # Live prices for everything we hold + the index instruments. If this
+        # fails, degrade to census (yesterday's close) silently so the UI
+        # doesn't break.
+        unique_ids = sorted(
+            {raw["instrumentID"] for raw in raw_positions}
+            | {iid for _, iid in index_pairs}
+        )
         rates: dict[int, dict] = {}
         prices_live = False
         if unique_ids:
@@ -296,7 +395,6 @@ class EtoroTuiApp(App[None]):
 
         fundamentals = self._signals.fundamentals()
         pi_pct = self._census.read()
-        instruments = self._census.instruments()
 
         positions_list: list[Position] = []
         skipped = 0
@@ -325,6 +423,13 @@ class EtoroTuiApp(App[None]):
             # Short window keeps any pre-fix-era polluted snapshots from
             # dominating the min-max scale and producing a single solid bar.
             spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
+
+        # Build the side-panel data: indices (live levels) + actions snapshot.
+        indices = _build_indices(rates, instruments, index_pairs)
+        actions = _build_actions(positions, fundamentals, acct.equity)
+        panel = self.query_one(DetailPanel)
+        panel.indices = indices
+        panel.actions = actions
 
         # Status reflects rates-fetch outcome too: live only when prices
         # are also live; degraded when we fell back to census silently.
@@ -477,17 +582,6 @@ class EtoroTuiApp(App[None]):
     def on_positions_table_position_selected(
         self, message: PositionsTable.PositionSelected
     ) -> None:
-        panel = self.query_one(DetailPanel)
-        panel.position = message.position
-        if message.position is not None and self._db is not None:
-            # 4h intraday + 24h overview. Wider windows produced solid blocks
-            # because few snapshots had accumulated and any old data with
-            # different magnitude blew up the min-max scale.
-            spark = storage.read_position_sparkline(
-                self._db, message.position.symbol, hours=4, max_points=40
-            )
-            panel.intraday = spark
-            week = storage.read_position_sparkline(
-                self._db, message.position.symbol, hours=24, max_points=40
-            )
-            panel.seven_day = week
+        # Sparklines were removed in favour of indices + actions panels —
+        # the per-row dossier still gets its overlays but no chart.
+        self.query_one(DetailPanel).position = message.position

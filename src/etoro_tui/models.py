@@ -47,6 +47,36 @@ class AccountSummary:
 
 
 @dataclass(frozen=True)
+class IndexSummary:
+    """One major index for the side-panel 'INDICES' block.
+
+    `last`  = live price from /market-data/instruments/rates (lastExecution).
+    `prev`  = census `currentPrice` (yesterday's close).
+    `change_pct` = (last − prev) / prev × 100 — today's move.
+    """
+    name: str
+    last: float
+    change_pct: float
+
+
+@dataclass(frozen=True)
+class ActionsSummary:
+    """Buckets of portfolio actions inferred from etorotrade signals + holdings.
+
+    buy   — top etorotrade BUY signals NOT held (new ideas, by upside)
+    add   — currently held positions with BUY signal (build up)
+    hold  — currently held positions with HOLD signal (steady)
+    trim  — currently held with SELL signal AND <3% of equity (small concern)
+    sell  — currently held with SELL signal AND ≥3% of equity (urgent)
+    """
+    buy: tuple[str, ...]
+    add: tuple[str, ...]
+    hold: tuple[str, ...]
+    trim: tuple[str, ...]
+    sell: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class AppState:
     account: Optional[AccountSummary]
     positions: tuple[Position, ...]
