@@ -35,9 +35,21 @@ _SIG_STYLE = {
     "HOLD": ("dim", "HOLD"),
 }
 
-_COLS: tuple[str, ...] = (
-    "Symbol", "Lots", "Units", "Avg Open", "Now", "Δ%",
-    "Value $", "% Eq", "P&L $", "Sig", "PI%",
+# (label, width). width=None lets DataTable auto-size; explicit widths give
+# justify="right" Text actual room to right-align inside. Without widths,
+# DataTable shrinks columns to widest content and the justification is a no-op.
+_COLS: tuple[tuple[str, int | None], ...] = (
+    ("Symbol",   None),  # auto — varies (AAPL, LYXGRE.DE, NOVO-B.CO …)
+    ("Lots",        5),
+    ("Units",      12),
+    ("Avg Open",   11),
+    ("Now",        11),
+    ("Δ%",          8),
+    ("Value $",    13),
+    ("% Eq",        7),
+    ("P&L $",      13),
+    ("Sig",         5),
+    ("PI%",         6),
 )
 
 
@@ -122,8 +134,8 @@ class PositionsTable(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        for label in _COLS:
-            table.add_column(label, key=label)
+        for label, width in _COLS:
+            table.add_column(label, key=label, width=width)
         table.focus()
 
     def cycle_sort(self) -> None:
