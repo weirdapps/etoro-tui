@@ -2,7 +2,9 @@
 
 ## Summary
 
-The endpoint documentation in `~/SourceCode/trading-marketplace/plugins/etoro-trading/shared/etoro-api/endpoints.md` is **wrong**. This file documents what the live API actually returns, discovered by probing with valid credentials.
+Field/endpoint reference for the eToro Public API as observed in practice.
+Account-identifying values in the example response below are SYNTHETIC —
+do not treat them as a real position.
 
 ## Base URL
 
@@ -14,7 +16,6 @@ The wrong host returns generic `{"statusCode":404,"message":"Resource not found"
 
 ## Headers
 
-Same as documented:
 - `x-api-key: <PUBLIC_KEY>`
 - `x-user-key: <USER_KEY>`
 - `x-request-id: <UUID>`
@@ -31,26 +32,26 @@ Returns ONE blob with everything: positions, cash, orders. There is no separate 
   "clientPortfolio": {
     "positions": [
       {
-        "positionID": 0,
-        "CID": 0,
-        "openDateTime": "2026-01-01T00:00:00Z",
-        "openRate": 215.05,
-        "instrumentID": 1005,
+        "positionID": 0,                          // <redacted — int>
+        "CID": 0,                                 // <redacted — int customer id>
+        "openDateTime": "2026-01-01T00:00:00Z",   // <synthetic>
+        "openRate": 100.00,                       // <synthetic>
+        "instrumentID": 1005,                     // AAPL (public mapping)
         "isBuy": true,
         "takeProfitRate": 0.0,
         "stopLossRate": 0.0001,
-        "amount": 2500.0,
+        "amount": 1000.0,                         // <synthetic — invested USD>
         "leverage": 1,
-        "units": 10.0,
+        "units": 10.0,                            // <synthetic>
         "totalFees": 0.0,
-        "initialAmountInDollars": 2500.0
+        "initialAmountInDollars": 1000.0          // <synthetic>
         // ... ~25 other internal fields
       }
     ],
-    "credit": 0.00,        // cash available, USD
+    "credit": 0.00,                               // <redacted — cash USD>
     "bonusCredit": 0.0,
     "mirrors": [],
-    "orders": [],               // pending orders
+    "orders": [],
     "stockOrders": [],
     "entryOrders": [],
     "exitOrders": [],
