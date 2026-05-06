@@ -102,33 +102,66 @@ def _seed_config_toml() -> Path | None:
     return config.CONFIG_TOML
 
 
+def _choose(prompt: str, options: list[str]) -> str | None:
+    """Prompt for one of `options` (case-insensitive). None on abort."""
+    bracket = "/".join(o.upper() for o in options)
+    while True:
+        try:
+            ans = input(f"{prompt} [{bracket}]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return None
+        if not ans:
+            return options[0]
+        if ans in options:
+            return ans
+        print(f"  (please enter one of: {', '.join(options)})")
+
+
 def run_setup() -> int:
     _print_banner()
 
-    # Detect existing creds — env or file.
+    # Detect existing creds — and offer the right choice depending on intent.
+    pk: str | None = None
+    uk: str | None = None
+    reuse = False
     try:
-        existing_pk, _ = config.get_credentials()
-        print(f"You already have credentials configured ({config.get_credentials_source()}).")
-        if not _yes("Overwrite them?", default=False):
-            print("Keeping existing setup. Bye!")
-            return 0
+        existing_pk, existing_uk = config.get_credentials()
+        existing_source = config.get_credentials_source()
+        print(f"You already have credentials configured (source: {existing_source}).")
         print()
+        print("  1. Keep current keys, change where they're stored")
+        print("  2. Replace with NEW keys (rotated / different account)")
+        print("  3. Cancel — leave everything as-is")
+        print()
+        choice = _choose("Choose", ["1", "2", "3"])
+        print()
+        if choice in (None, "3"):
+            print("No changes made. Bye!")
+            return 0
+        if choice == "1":
+            pk, uk = existing_pk, existing_uk
+            reuse = True
+            print(f"  ✓ Reusing existing keys (pk starts {pk[:6]}…, uk starts {uk[:6]}…)")
+            print()
+        # choice == "2" → fall through to the rotate flow
     except config.AuthMissingError:
         pass
 
-    _print_step(1, "Get your eToro API keys")
-    _walk_through_api_setup()
+    if not reuse:
+        _print_step(1, "Get your eToro API keys")
+        _walk_through_api_setup()
 
-    _print_step(2, "Paste your keys")
-    pk = _prompt_secret("  Public Key:  ")
-    if not pk:
-        print("Aborted.", file=sys.stderr)
-        return 1
-    uk = _prompt_secret("  User Key:    ")
-    if not uk:
-        print("Aborted.", file=sys.stderr)
-        return 1
-    print()
+        _print_step(2, "Paste your keys")
+        pk = _prompt_secret("  Public Key:  ")
+        if not pk:
+            print("Aborted.", file=sys.stderr)
+            return 1
+        uk = _prompt_secret("  User Key:    ")
+        if not uk:
+            print("Aborted.", file=sys.stderr)
+            return 1
+        print()
 
     _print_step(3, "Where to store them")
     print("  A.  ~/.etoro-tui/.env  (chmod 600). Cross-platform, simple file.")
@@ -144,15 +177,9 @@ def run_setup() -> int:
     options = ["a", "c"]
     if config.keyring_available():
         options.insert(1, "b")
-    while True:
-        try:
-            choice = input(f"Choose [{'/'.join(options).upper()}]: ").strip().lower() or "a"
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return 1
-        if choice in options:
-            break
-        print(f"  (please enter one of: {', '.join(options)})")
+    choice = _choose("Choose", options)
+    if choice is None:
+        return 1
     print()
 
     if choice == "a":

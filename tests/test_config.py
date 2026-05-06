@@ -20,8 +20,9 @@ def test_credentials_source_env(monkeypatch):
 def test_credentials_missing_raises(monkeypatch):
     monkeypatch.delenv("ETORO_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("ETORO_USER_KEY", raising=False)
-    # Bypass any .env file the user might have on the dev machine.
+    # Bypass any .env file or keyring entries the dev box might have.
     monkeypatch.setattr(config, "_ENVFILE", {})
+    monkeypatch.setattr(config, "_keyring_lookup", lambda: (None, None))
     with pytest.raises(config.AuthMissingError):
         config.get_credentials()
 
