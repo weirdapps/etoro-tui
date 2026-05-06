@@ -94,7 +94,8 @@ def _build_body(
 
     parts.append(("\nDiagnostics\n", "bold cyan"))
     parts.append(("  Auth source   ", "dim"))
-    parts.append((f"{auth_source}\n", ""))
+    parts.append((f"{auth_source}", ""))
+    parts.append(("  (env / envfile / keyring)\n", "dim"))
     parts.append(("  Snapshot DB   ", "dim"))
     parts.append((f"{snapshot_db}\n", ""))
 

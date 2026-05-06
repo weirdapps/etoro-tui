@@ -35,6 +35,10 @@ dev = [
     "pytest-asyncio>=0.24",
     "respx>=0.21",
 ]
+# Cross-platform credential storage (macOS Keychain, Windows Credential
+# Manager, Linux Secret Service). Optional so we don't force the system
+# deps (dbus on Linux) on users who prefer the .env file.
+keyring = ["keyring>=24"]
 
 [project.scripts]
 etoro-tui = "etoro_tui.__main__:main"

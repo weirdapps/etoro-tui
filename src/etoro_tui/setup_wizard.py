@@ -131,19 +131,48 @@ def run_setup() -> int:
     print()
 
     _print_step(3, "Where to store them")
-    print("  Option A:  Write to  ~/.etoro-tui/.env  (chmod 600). Persistent.")
-    print("  Option B:  Print export commands. You set the env vars yourself.")
+    print("  A.  ~/.etoro-tui/.env  (chmod 600). Cross-platform, simple file.")
+    if config.keyring_available():
+        print("  B.  System keyring  (macOS Keychain / Windows Credential Manager")
+        print("                       / Linux Secret Service). Most secure.")
+    else:
+        print("  B.  System keyring  (NOT AVAILABLE — install with:")
+        print("                       `pipx inject etoro-tui keyring` or")
+        print("                       `pip install etoro-tui[keyring]`)")
+    print("  C.  Just print export commands. You set the env vars yourself.")
     print()
-    write_to_file = _yes("Write to ~/.etoro-tui/.env now?", default=True)
+    options = ["a", "c"]
+    if config.keyring_available():
+        options.insert(1, "b")
+    while True:
+        try:
+            choice = input(f"Choose [{'/'.join(options).upper()}]: ").strip().lower() or "a"
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 1
+        if choice in options:
+            break
+        print(f"  (please enter one of: {', '.join(options)})")
     print()
 
-    if write_to_file:
+    if choice == "a":
         path = _write_envfile(pk, uk)
         print(f"  ✓ Wrote {path} (mode 600)")
-    else:
+    elif choice == "b":
+        try:
+            config.keyring_save(pk, uk)
+        except Exception as e:  # noqa: BLE001 — keyring backends raise diverse errors
+            print(f"  ✗ Keyring save failed: {e}", file=sys.stderr)
+            print("    Falling back to ~/.etoro-tui/.env")
+            path = _write_envfile(pk, uk)
+            print(f"  ✓ Wrote {path} (mode 600)")
+        else:
+            print("  ✓ Saved to system keyring (service: etoro-public-key /")
+            print("    etoro-user-key, account: etoro-api)")
+    else:  # choice == "c"
         print("  Add to your shell profile (~/.zshrc or ~/.bashrc):")
-        print(f"    export ETORO_PUBLIC_KEY=\"{pk}\"")
-        print(f"    export ETORO_USER_KEY=\"{uk}\"")
+        print(f'    export ETORO_PUBLIC_KEY="{pk}"')
+        print(f'    export ETORO_USER_KEY="{uk}"')
         print("  Then `source ~/.zshrc` (or open a new shell).")
     print()
 

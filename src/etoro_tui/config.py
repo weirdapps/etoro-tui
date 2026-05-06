@@ -118,11 +118,19 @@ SNAPSHOT_DB_PATH = _path_override("paths", "snapshot_db",    default=SNAPSHOT_DB
 
 # ---- credentials ----
 
-CredSource = Literal["env", "envfile"]
+CredSource = Literal["env", "envfile", "keyring"]
 
 
 class AuthMissingError(RuntimeError):
-    """Raised when env vars are absent and ~/.etoro-tui/.env doesn't supply them."""
+    """Raised when no credential source supplies both keys."""
+
+
+# Service / account names used in the system keyring. Match the legacy
+# `security add-generic-password -a etoro-api -s etoro-{public,user}-key`
+# names so users with existing macOS Keychain entries don't have to re-add.
+KEYRING_ACCOUNT = "etoro-api"
+KEYRING_SVC_PUBLIC = "etoro-public-key"
+KEYRING_SVC_USER = "etoro-user-key"
 
 
 def _load_env_file() -> dict[str, str]:
@@ -136,7 +144,6 @@ def _load_env_file() -> dict[str, str]:
             if not line or line.startswith("#") or "=" not in line:
                 continue
             key, _, val = line.partition("=")
-            # Strip optional surrounding quotes.
             val = val.strip().strip('"').strip("'")
             out[key.strip()] = val
     except OSError:
@@ -147,20 +154,57 @@ def _load_env_file() -> dict[str, str]:
 _ENVFILE: dict[str, str] = _load_env_file()
 
 
+def keyring_available() -> bool:
+    """True if the optional `keyring` package is importable."""
+    try:
+        import keyring  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _keyring_lookup() -> tuple[str | None, str | None]:
+    """Read both keys from the system keyring. Returns (None, None) on any failure."""
+    try:
+        import keyring
+    except ImportError:
+        return None, None
+    try:
+        pk = keyring.get_password(KEYRING_SVC_PUBLIC, KEYRING_ACCOUNT)
+        uk = keyring.get_password(KEYRING_SVC_USER, KEYRING_ACCOUNT)
+        return pk, uk
+    except Exception:  # noqa: BLE001 — keyring backends raise diverse exceptions
+        return None, None
+
+
+def keyring_save(public_key: str, user_key: str) -> None:
+    """Persist both keys to the system keyring. Caller checks keyring_available() first."""
+    import keyring  # let ImportError propagate so the wizard can catch it
+    keyring.set_password(KEYRING_SVC_PUBLIC, KEYRING_ACCOUNT, public_key)
+    keyring.set_password(KEYRING_SVC_USER,   KEYRING_ACCOUNT, user_key)
+
+
 def get_credentials() -> tuple[str, str]:
-    """Return (public_key, user_key). Env first, then ~/.etoro-tui/.env."""
+    """Return (public_key, user_key). Resolution: env → .env file → keyring."""
     pk = os.environ.get("ETORO_PUBLIC_KEY") or _ENVFILE.get("ETORO_PUBLIC_KEY")
     uk = os.environ.get("ETORO_USER_KEY")   or _ENVFILE.get("ETORO_USER_KEY")
+    if not (pk and uk):
+        kr_pk, kr_uk = _keyring_lookup()
+        pk = pk or kr_pk
+        uk = uk or kr_uk
     if not pk or not uk:
+        suffix = (" / system keyring" if keyring_available() else "")
         raise AuthMissingError(
-            "Set ETORO_PUBLIC_KEY and ETORO_USER_KEY environment variables, "
-            "or run `etoro-tui setup` to write them to ~/.etoro-tui/.env."
+            "ETORO_PUBLIC_KEY and ETORO_USER_KEY not found in env"
+            f" / ~/.etoro-tui/.env{suffix}. Run `etoro-tui setup` to configure."
         )
     return pk, uk
 
 
 def get_credentials_source() -> CredSource:
-    """Report whether credentials came from process env or the .env file."""
+    """Report which source supplied the credentials currently in use."""
     if os.environ.get("ETORO_PUBLIC_KEY") and os.environ.get("ETORO_USER_KEY"):
         return "env"
-    return "envfile"
+    if _ENVFILE.get("ETORO_PUBLIC_KEY") and _ENVFILE.get("ETORO_USER_KEY"):
+        return "envfile"
+    return "keyring"
