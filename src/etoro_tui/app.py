@@ -8,7 +8,7 @@ from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Optional, TypedDict
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -21,17 +21,28 @@ from .clients.etoro import (
     EtoroClient,
     EtoroTransientError,
 )
-from .clients.news import NewsReader
 from .clients.signals import Fundamentals, SignalsReader
 from .models import (
     AccountSummary,
-    ActionsSummary,
     AppState,
     IndexSummary,
     Position,
+    Signal,
     Status,
 )
-from .widgets.detail_panel import DetailPanel
+
+
+class _OverlayKwargs(TypedDict):
+    """Typed kwargs for the overlay fields on Position. Mirrors the field
+    names exactly so `Position(..., **_overlay_fields(...))` typechecks.
+    """
+    signal: Optional[Signal]
+    pi_pct: Optional[float]
+    pe_trailing: Optional[float]
+    pe_forward: Optional[float]
+    upside_pct: Optional[float]
+    analyst_buy_pct: Optional[float]
+    target_price: Optional[float]
 from .widgets.footer import Footer
 from .widgets.header import Header
 from .widgets.help_modal import HelpModal
@@ -55,7 +66,13 @@ def _build_indices(
     instruments: dict[int, InstrumentInfo],
     pairs: list[tuple[str, int]],
 ) -> tuple[IndexSummary, ...]:
-    """Build IndexSummary list. live=lastExecution, prev=census close."""
+    """Build IndexSummary list. Prices are FX-converted to USD for consistency
+    with the portfolio rows — otherwise the same ticker (e.g. LYXGRE.DE which
+    is EUR-denominated) shows two different numbers in the two panels.
+
+    live = lastExecution × conversionRateAsk  (USD)
+    prev = census currentPrice × conversionRateAsk (USD, same FX as live)
+    """
     out: list[IndexSummary] = []
     for name, inst_id in pairs:
         rate = rates.get(inst_id)
@@ -63,56 +80,40 @@ def _build_indices(
         if not rate or not info:
             continue
         try:
-            live = float(rate.get("lastExecution") or rate.get("bid") or 0)
+            local_live = float(rate.get("lastExecution") or rate.get("bid") or 0)
         except (TypeError, ValueError):
             continue
-        prev = float(info.current_price) if info.current_price else 0.0
+        if local_live <= 0:
+            continue
+        ocr = float(rate.get("conversionRateAsk", 1.0))
+        live = local_live * ocr
+        prev = (float(info.current_price) * ocr) if info.current_price else 0.0
         change_pct = ((live - prev) / prev * 100) if prev > 0 else 0.0
         out.append(IndexSummary(name=name, last=live, change_pct=change_pct))
     return tuple(out)
 
 
-def _build_actions(
-    positions: tuple[Position, ...],
-    fundamentals: dict[str, Fundamentals],
-    equity: float,
-) -> ActionsSummary:
-    """Categorise the portfolio into Buy/Add/Hold/Trim/Sell buckets.
+def _overlay_fields(
+    sym: str,
+    fund: Fundamentals | None,
+    pi_holdings: dict[str, float],
+) -> _OverlayKwargs:
+    """Build the overlay-kwargs dict for Position.
 
-    See ActionsSummary docstring for the rule used per bucket.
-    Trim/Sell threshold = 3% of equity (small positions trimmed gradually,
-    bigger ones flagged as harder sell decisions).
+    Single source of truth for the fields that come from etorotrade
+    fundamentals + census PI%. Both `_to_position` (initial build) and
+    `_tick_overlays` (overlay-only refresh) call this so the two paths
+    can never drift. Adding a new overlay field is a one-line change here.
     """
-    held = {p.symbol for p in positions}
-    add: list[str] = []
-    hold: list[str] = []
-    trim: list[str] = []
-    sell: list[str] = []
-    for p in positions:
-        pct_eq = (p.value / equity * 100) if equity > 0 else 0
-        if p.signal == "BUY":
-            add.append(p.symbol)
-        elif p.signal == "HOLD":
-            hold.append(p.symbol)
-        elif p.signal == "SELL":
-            (sell if pct_eq >= 3 else trim).append(p.symbol)
-
-    # New ideas: top etorotrade BUY signals that are NOT in the portfolio,
-    # ranked by analyst-implied upside. Stop at 5 to keep the panel tight.
-    candidates: list[tuple[str, float]] = []
-    for sym, fund in fundamentals.items():
-        if fund.signal == "BUY" and sym not in held:
-            candidates.append((sym, fund.upside_pct or 0.0))
-    candidates.sort(key=lambda x: x[1], reverse=True)
-    buy = tuple(sym for sym, _ in candidates[:5])
-
-    return ActionsSummary(
-        buy=buy,
-        add=tuple(add),
-        hold=tuple(hold),
-        trim=tuple(trim),
-        sell=tuple(sell),
-    )
+    return {
+        "signal": fund.signal if fund else None,
+        "pi_pct": pi_holdings.get(sym),
+        "pe_trailing": fund.pe_trailing if fund else None,
+        "pe_forward": fund.pe_forward if fund else None,
+        "upside_pct": fund.upside_pct if fund else None,
+        "analyst_buy_pct": fund.analyst_buy_pct if fund else None,
+        "target_price": fund.target_price if fund else None,
+    }
 
 
 def _to_position(
@@ -120,7 +121,6 @@ def _to_position(
     instruments: dict[int, InstrumentInfo],
     fundamentals: dict[str, Fundamentals],
     pi_pct: dict,
-    news: NewsReader,
     rates: dict[int, dict] | None = None,
 ) -> Position | None:
     """Build a Position from a raw eToro position record.
@@ -155,22 +155,44 @@ def _to_position(
     open_ocr = float(raw.get("openConversionRate", 1.0))
     open_rate = float(raw["openRate"]) * open_ocr        # local→USD (cost basis)
 
+    # Pick the first sensible live (price, FX) pair. Walk keys explicitly so
+    # a 0.0 (briefly possible during corp actions / data glitches) doesn't
+    # silently cascade to the next key, and so all-missing → falls back to
+    # census without ever calling float(None).
     live = (rates or {}).get(inst_id)
+    live_price_fx: tuple[float, float] | None = None
     if live is not None:
+        for key in ("lastExecution", "Bid", "bid"):
+            val = live.get(key)
+            if val is None:
+                continue
+            try:
+                candidate = float(val)
+            except (TypeError, ValueError):
+                continue
+            if candidate > 0:
+                live_price_fx = (candidate, float(live.get("conversionRateAsk", 1.0)))
+                break
+
+    if live_price_fx is not None:
         # Live last-trade price × current FX (more accurate than per-position OCR).
-        local_now = float(live.get("lastExecution") or live.get("Bid") or live.get("bid"))
-        current_ocr = float(live.get("conversionRateAsk", 1.0))
+        local_now, current_ocr = live_price_fx
         current_rate = local_now * current_ocr
     else:
         # Fall back to yesterday's close from census, FX'd at open rate.
+        current_ocr = open_ocr
         current_rate = float(info.current_price) * open_ocr
+    # Yesterday's close (USD), for Δday. Census stores prices in the local
+    # listing currency, so FX it at the same OCR used for current_rate to
+    # keep the Δday calculation pure-price (FX neutralises across both
+    # sides). When live rates fail we fall back to current_ocr=open_ocr.
+    prev_close = float(info.current_price) * current_ocr if info.current_price else None
     is_buy = bool(raw["isBuy"])
     direction_sign = 1 if is_buy else -1
     value = current_rate * units
     pnl = (current_rate - open_rate) * units * direction_sign
     pnl_pct = ((current_rate - open_rate) / open_rate * 100 * direction_sign
                if open_rate else 0.0)
-    cnt = news.count_24h(sym)
     fund = fundamentals.get(sym)
     return Position(
         position_id=raw["positionID"],
@@ -183,15 +205,8 @@ def _to_position(
         pnl=pnl,
         pnl_pct=pnl_pct,
         open_ts=datetime.fromisoformat(raw["openDateTime"].replace("Z", "+00:00")),
-        signal=fund.signal if fund else None,
-        pi_pct=pi_pct.get(sym),
-        news_24h=cnt,
-        news_anomaly=news.is_anomaly(sym) if cnt is not None else False,
-        pe_trailing=fund.pe_trailing if fund else None,
-        pe_forward=fund.pe_forward if fund else None,
-        upside_pct=fund.upside_pct if fund else None,
-        analyst_buy_pct=fund.analyst_buy_pct if fund else None,
-        target_price=fund.target_price if fund else None,
+        prev_close=prev_close,
+        **_overlay_fields(sym, fund, pi_pct),
     )
 
 
@@ -205,9 +220,8 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
     - pnl_pct: total_pnl ÷ total_cost × 100.
     - open_ts: earliest open across the group.
     - position_count: how many raw positions were aggregated.
-    - direction, signal, pi_pct, news_*, pe_*, upside_pct, analyst_*,
-      target_price: taken from the first position (per-instrument, identical
-      across the group).
+    - direction, signal, pi_pct, pe_*, upside_pct, analyst_*, target_price:
+      taken from the first position (per-instrument, identical across group).
     - position_id: kept as the first position's id, used as a stable key for
       DataTable rows and the snapshot table — has no semantic meaning here.
     """
@@ -238,14 +252,13 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
             open_ts=oldest,
             signal=first.signal,
             pi_pct=first.pi_pct,
-            news_24h=first.news_24h,
-            news_anomaly=first.news_anomaly,
             position_count=len(ps),
             pe_trailing=first.pe_trailing,
             pe_forward=first.pe_forward,
             upside_pct=first.upside_pct,
             analyst_buy_pct=first.analyst_buy_pct,
             target_price=first.target_price,
+            prev_close=first.prev_close,
         ))
     return tuple(out)
 
@@ -278,7 +291,6 @@ class EtoroTuiApp(App[None]):
         Binding("slash", "filter", "Filter", key_display="/"),
         Binding("escape", "clear_filter", "Clear filter", show=False),
         Binding("question_mark", "help", "Help", key_display="?"),
-        Binding("enter", "toggle_detail", "Detail", show=False),
     ]
 
     def __init__(
@@ -296,10 +308,8 @@ class EtoroTuiApp(App[None]):
         self._etoro_client = etoro_client
         self._signals = SignalsReader(config.SIGNALS_CSV)
         self._census = CensusReader(config.CENSUS_GLOB_DIR, config.CENSUS_GLOB_PATTERN)
-        self._news = NewsReader(config.NEWS_DB_PATH)
         self._db: Optional[sqlite3.Connection] = None
         self._opening_equity_today: Optional[float] = None
-        self._show_detail = False
 
     # ------- composition -------
 
@@ -307,7 +317,6 @@ class EtoroTuiApp(App[None]):
         yield Header(id="header")
         with Horizontal(id="main"):
             yield PositionsTable(id="table")
-            yield DetailPanel(id="detail", classes="hidden")
         yield Footer(id="footer")
 
     async def on_mount(self) -> None:
@@ -316,15 +325,10 @@ class EtoroTuiApp(App[None]):
         # "today's Δ" doesn't start at 0% every session. We use the oldest
         # snapshot in the trailing 24h as a proxy for "yesterday's close".
         self._opening_equity_today = self._bootstrap_today_baseline()
-        # Show the detail panel from launch so the portfolio overview is visible.
-        self.query_one(DetailPanel).remove_class("hidden")
-        self._show_detail = True
         self._render_state()
-        # Demo mode: __main__.py attaches synthetic indices + actions before run().
+        # Demo mode: __main__.py attaches synthetic indices before run().
         if hasattr(self, "_demo_indices"):
-            panel = self.query_one(DetailPanel)
-            panel.indices = self._demo_indices
-            panel.actions = self._demo_actions
+            self.query_one(Header).indices = self._demo_indices
         if self._disable_polling:
             return
         # Auth-required: build client now if not injected.
@@ -394,7 +398,7 @@ class EtoroTuiApp(App[None]):
         positions_list: list[Position] = []
         skipped = 0
         for raw in raw_positions:
-            built = _to_position(raw, instruments, fundamentals, pi_pct, self._news, rates)
+            built = _to_position(raw, instruments, fundamentals, pi_pct, rates)
             if built is None:
                 skipped += 1
             else:
@@ -419,12 +423,11 @@ class EtoroTuiApp(App[None]):
             # dominating the min-max scale and producing a single solid bar.
             spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
 
-        # Build the side-panel data: indices (live levels) + actions snapshot.
+        # Indices (live levels) feed the header bar. Actions / dossier panel
+        # were removed because they depended on local-only data sources
+        # (etorotrade signals + census PIs) that other users won't have.
         indices = _build_indices(rates, instruments, index_pairs)
-        actions = _build_actions(positions, fundamentals, acct.equity)
-        panel = self.query_one(DetailPanel)
-        panel.indices = indices
-        panel.actions = actions
+        self.query_one(Header).indices = indices
 
         # Status reflects rates-fetch outcome too: live only when prices
         # are also live; degraded when we fell back to census silently.
@@ -438,28 +441,21 @@ class EtoroTuiApp(App[None]):
 
     def _tick_overlays(self) -> None:
         # Re-attach current overlay values without re-fetching from eToro.
+        # prev_close is intentionally NOT refreshed here — it requires the
+        # current FX from live rates (only available in _tick_etoro). It will
+        # update on the next _tick_etoro cycle (every 5s).
         if self._state.account is None:
             return
         fundamentals = self._signals.fundamentals()
         census = self._census.read()
-        new_positions = []
-        for p in self._state.positions:
-            cnt = self._news.count_24h(p.symbol)
-            fund = fundamentals.get(p.symbol)
-            new_positions.append(replace(
-                p,
-                signal=fund.signal if fund else None,
-                pi_pct=census.get(p.symbol),
-                news_24h=cnt,
-                news_anomaly=self._news.is_anomaly(p.symbol) if cnt is not None else False,
-                pe_trailing=fund.pe_trailing if fund else None,
-                pe_forward=fund.pe_forward if fund else None,
-                upside_pct=fund.upside_pct if fund else None,
-                analyst_buy_pct=fund.analyst_buy_pct if fund else None,
-                target_price=fund.target_price if fund else None,
+        new_positions = tuple(
+            replace(p, **_overlay_fields(
+                p.symbol, fundamentals.get(p.symbol), census,
             ))
+            for p in self._state.positions
+        )
         self._state = AppState(
-            account=self._state.account, positions=tuple(new_positions),
+            account=self._state.account, positions=new_positions,
             last_error=self._state.last_error, status=self._state.status,
             equity_sparkline=self._state.equity_sparkline,
         )
@@ -499,9 +495,6 @@ class EtoroTuiApp(App[None]):
         table = self.query_one(PositionsTable)
         table.equity = equity_now
         table.positions = self._state.positions
-        panel = self.query_one(DetailPanel)
-        panel.equity = equity_now
-        panel.all_positions = self._state.positions
         footer = self.query_one(Footer)
         footer.last_error = self._state.last_error
 
@@ -542,11 +535,6 @@ class EtoroTuiApp(App[None]):
     def action_clear_filter(self) -> None:
         self.query_one(PositionsTable).hide_filter()
 
-    def action_toggle_detail(self) -> None:
-        self._show_detail = not self._show_detail
-        panel = self.query_one(DetailPanel)
-        panel.set_class(not self._show_detail, "hidden")
-
     def action_help(self) -> None:
         try:
             source = config.get_credentials_source()
@@ -574,9 +562,7 @@ class EtoroTuiApp(App[None]):
     ) -> None:
         self.query_one(Footer).sort_label = SORT_LABELS.get(message.key, str(message.key))
 
-    def on_positions_table_position_selected(
-        self, message: PositionsTable.PositionSelected
-    ) -> None:
-        # Sparklines were removed in favour of indices + actions panels —
-        # the per-row dossier still gets its overlays but no chart.
-        self.query_one(DetailPanel).position = message.position
+    # NOTE: PositionsTable.PositionSelected message is no longer consumed —
+    # the per-row dossier panel was removed. The message is still emitted by
+    # the table on row highlight; we just don't act on it. Left in place in
+    # case a future hover/popup feature wants it.

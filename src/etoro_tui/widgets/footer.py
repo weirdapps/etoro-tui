@@ -14,7 +14,6 @@ def _legend() -> Text:
     """Compact key legend with bright key chips and dim labels."""
     pairs = [
         ("↑↓", "select"),
-        ("⏎", "detail"),
         ("s", "sort"),
         ("/", "filter"),
         ("r", "refresh"),

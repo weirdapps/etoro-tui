@@ -72,7 +72,7 @@ def test_keyring_lookup_no_module(monkeypatch):
 def test_paths_are_absolute():
     assert config.SNAPSHOT_DB_PATH.is_absolute()
     assert config.SIGNALS_CSV.is_absolute()
-    assert config.NEWS_DB_PATH.is_absolute()
+    assert config.CENSUS_GLOB_DIR.is_absolute()
 
 
 def test_intervals_are_positive():

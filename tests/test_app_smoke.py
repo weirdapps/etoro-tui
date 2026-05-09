@@ -13,7 +13,7 @@ def _make_state() -> AppState:
         open_rate=150.0, current_rate=160.0, value=1600.0,
         pnl=100.0, pnl_pct=6.67,
         open_ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        signal="BUY", pi_pct=42.0, news_24h=3,
+        signal="BUY", pi_pct=42.0,
     )
     acct = AccountSummary(
         equity=50000.0, cash=10000.0, unrealized=500.0, realized=1500.0,
@@ -30,9 +30,9 @@ async def test_app_boots_with_injected_state():
     app = EtoroTuiApp(initial_state=_make_state(), disable_polling=True)
     async with app.run_test() as pilot:
         await pilot.pause()
-        # Header should reflect the equity
-        header = app.query_one("#hdr-equity")
-        assert "50,000" in str(header.render())
+        # Header is two Statics (#hdr-left + #hdr-right). Equity sits in left.
+        left = app.query_one("#hdr-left")
+        assert "50,000" in str(left.render())
 
 
 @pytest.mark.asyncio

@@ -47,39 +47,3 @@ def tmp_census_dir(tmp_path: Path) -> Path:
     return d
 
 
-@pytest.fixture
-def tmp_news_db(tmp_path: Path) -> Path:
-    """Sample news.db with articles + article_tickers."""
-    import sqlite3
-    p = tmp_path / "news.db"
-    conn = sqlite3.connect(p)
-    conn.executescript("""
-        CREATE TABLE articles (
-            url TEXT PRIMARY KEY, title TEXT, source TEXT, published_at TEXT
-        );
-        CREATE TABLE article_tickers (article_url TEXT, ticker TEXT);
-    """)
-    # 5 AAPL articles in last 24h, 1 in last 7d (older), 0 for MSFT
-    conn.execute(
-        "INSERT INTO articles VALUES ('u1', 't1', 's', datetime('now','-1 hour'))"
-    )
-    conn.execute(
-        "INSERT INTO articles VALUES ('u2', 't2', 's', datetime('now','-2 hour'))"
-    )
-    conn.execute(
-        "INSERT INTO articles VALUES ('u3', 't3', 's', datetime('now','-3 hour'))"
-    )
-    conn.execute(
-        "INSERT INTO articles VALUES ('u4', 't4', 's', datetime('now','-4 hour'))"
-    )
-    conn.execute(
-        "INSERT INTO articles VALUES ('u5', 't5', 's', datetime('now','-5 hour'))"
-    )
-    conn.execute(
-        "INSERT INTO articles VALUES ('uold', 't_old', 's', datetime('now','-3 days'))"
-    )
-    for url in ["u1", "u2", "u3", "u4", "u5", "uold"]:
-        conn.execute("INSERT INTO article_tickers VALUES (?, 'AAPL')", (url,))
-    conn.commit()
-    conn.close()
-    return p

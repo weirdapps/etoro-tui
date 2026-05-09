@@ -1,32 +1,41 @@
-/* src/etoro_tui/styles.tcss
+/* src/etoro_tui/styles.tcss — Bloomberg-Pro skin
  *
  * Layout (top → bottom):
- *   Header — 2 rows. Row 1: equity (prominent) + clock + status.
- *                    Row 2: today Δ + sparkline + cash + open P&L.
- *   #main  — 1fr, PositionsTable + DetailPanel side-by-side.
+ *   Header — 1 row. Single Static, sections separated by │ dividers.
+ *   #main  — 1fr, PositionsTable spans full width.
  *   Footer — 1 row legend + sort + last-fetch, optional error banner below.
+ *
+ * Visual conventions:
+ *   - Vertical column dividers in the table are baked into cell text (│ )
+ *     because Textual DataTable has no native divider option.
+ *   - Cursor row: deep navy bg + bold (avoids theme accent which is
+ *     yellow-orange in many terminal themes).
+ *   - Header background = $boost so it visually separates from the table.
  */
 
 Screen {
     layout: vertical;
 }
 
-/* ---- Header (single-row) ---- */
+/* ---- Header (single-row, two-section layout) ---- */
 
 Header {
     height: 1;
-    background: $panel;
+    background: $boost;
     layout: horizontal;
 }
 
-#hdr-equity { width: 18;  padding-left: 1; }                 /* $100,000.00 */
-#hdr-delta  { width: 32;  padding-left: 2; }                 /* ▲ +$500 (+0.26%) today */
-#hdr-spark  { width: 24;  padding-left: 2; padding-right: 2; }
-#hdr-fill   { width: 1fr; }                                  /* eats leftover space */
-#hdr-cash   { width: 16;  content-align: right middle; padding-right: 2; }
-#hdr-pnl    { width: 16;  content-align: right middle; padding-right: 2; }
-#hdr-clock  { width: 12;  content-align: right middle; padding-right: 1; }
-#hdr-status { width: 9;   content-align: right middle; padding-right: 1; }
+#hdr-left {
+    width: 1fr;                 /* eats leftover space on the left */
+    padding: 0 1;
+    content-align: left middle;
+}
+
+#hdr-right {
+    width: auto;                /* hugs its content on the right edge */
+    padding: 0 1;
+    content-align: right middle;
+}
 
 /* ---- Main area ---- */
 
@@ -50,16 +59,16 @@ PositionsTable > DataTable {
     scrollbar-color: $primary-darken-2;
 }
 
-/* Subtle navy cursor highlight + bold text. Hardcoded to avoid theme
- * variables resolving as orange-brown (which is what `$accent 30%` did
- * in the user's Warp theme — the accent variable is yellow there). */
+/* Bloomberg-style cursor: bright cyan-on-deep-navy + bold. */
 DataTable > .datatable--cursor {
-    background: #1e3a5f;
+    background: #0d2b4d;
+    color: #5fd4ff;
     text-style: bold;
 }
 
+/* Header row distinguished with bold + a subtle bg lift. */
 DataTable > .datatable--header {
-    background: $panel;
+    background: $boost;
     color: $text;
     text-style: bold;
 }
@@ -68,33 +77,14 @@ DataTable > .datatable--header-hover {
     background: $primary-darken-2;
 }
 
-DetailPanel {
-    width: 42;
-    height: 1fr;
-    border-left: solid $accent;
-    padding: 0 1;
-    /* Scroll vertically when content exceeds panel height (large portfolios
-     * have 16+ Hold tickers in the actions grid alone). */
-    overflow-y: scroll;
-    overflow-x: hidden;
-    scrollbar-size: 1 1;
-    scrollbar-background: $panel;
-    scrollbar-color: $primary-darken-2;
+/* Make zebra stripe more subtle so the column dividers (│) carry the
+ * visual structure instead of competing with row banding. */
+DataTable > .datatable--odd-row {
+    background: $background;
 }
-
-DetailPanel > Static {
-    margin: 0;
-    height: auto;
+DataTable > .datatable--even-row {
+    background: $surface;
 }
-
-DetailPanel.hidden {
-    display: none;
-}
-
-#dp-title    { text-style: bold; }
-#dp-body     { height: auto; }
-#dp-indices  { height: auto; }
-#dp-actions  { height: auto; }
 
 /* ---- Footer ---- */
 
@@ -143,9 +133,9 @@ HelpModal {
 }
 
 #help-box {
-    width: 60;
+    width: 64;
     height: auto;
-    border: thick $accent;
+    border: round $primary;
     background: $panel;
     padding: 1 2;
 }
