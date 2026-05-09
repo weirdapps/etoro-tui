@@ -1,4 +1,5 @@
 """etoro-tui — terminal UI for eToro portfolio."""
+
 from importlib.metadata import PackageNotFoundError, version
 
 try:

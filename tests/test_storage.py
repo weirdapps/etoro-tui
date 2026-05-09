@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from etoro_tui import storage
@@ -7,26 +7,33 @@ from etoro_tui.models import AccountSummary, Position
 
 def _account(equity: float = 50000.0) -> AccountSummary:
     return AccountSummary(
-        equity=equity, cash=10000.0, unrealized=500.0, realized=1500.0,
-        fetched_at=datetime.now(timezone.utc),
+        equity=equity,
+        cash=10000.0,
+        unrealized=500.0,
+        realized=1500.0,
+        fetched_at=datetime.now(UTC),
     )
 
 
 def _position(symbol: str = "AAPL", current: float = 160.0) -> Position:
     return Position(
-        position_id=1, symbol=symbol, direction="Buy", units=10.0,
-        open_rate=150.0, current_rate=current, value=current * 10,
-        pnl=(current - 150) * 10, pnl_pct=(current - 150) / 150 * 100,
-        open_ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        position_id=1,
+        symbol=symbol,
+        direction="Buy",
+        units=10.0,
+        open_rate=150.0,
+        current_rate=current,
+        value=current * 10,
+        pnl=(current - 150) * 10,
+        pnl_pct=(current - 150) / 150 * 100,
+        open_ts=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 
 def test_init_db_creates_tables(tmp_path: Path):
     db = tmp_path / "snap.db"
     conn = storage.init_db(db)
-    tables = {row[0] for row in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    )}
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "equity_snapshots" in tables
     assert "position_snapshots" in tables
     conn.close()
@@ -54,7 +61,7 @@ def test_sparkline_downsamples(tmp_path: Path):
     db = tmp_path / "snap.db"
     conn = storage.init_db(db)
     # Insert 200 snapshots, each 1 minute apart
-    base = datetime.now(timezone.utc) - timedelta(hours=4)
+    base = datetime.now(UTC) - timedelta(hours=4)
     for i in range(200):
         ts = (base + timedelta(minutes=i)).isoformat()
         conn.execute(
@@ -83,11 +90,13 @@ def test_write_snapshot_does_not_raise_on_empty_positions(tmp_path: Path):
 def test_downsample_returns_input_when_fewer_than_max():
     """Early-return branch: no downsampling needed."""
     from etoro_tui.storage import _downsample
+
     assert _downsample([1.0, 2.0, 3.0], 10) == (1.0, 2.0, 3.0)
 
 
 def test_downsample_returns_input_when_exactly_max():
     """Boundary: equal length is not downsampled."""
     from etoro_tui.storage import _downsample
+
     values = [float(i) for i in range(10)]
     assert _downsample(values, 10) == tuple(values)

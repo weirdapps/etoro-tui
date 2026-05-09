@@ -9,6 +9,7 @@ Walks the user through:
 
 Designed to be safe on re-runs: existing files prompt for overwrite.
 """
+
 from __future__ import annotations
 
 import os
@@ -17,7 +18,6 @@ import sys
 from pathlib import Path
 
 from . import config
-
 
 _DOCS_CONFIG_EXAMPLE = (
     Path(__file__).resolve().parent.parent.parent / "docs" / "config.example.toml"
@@ -204,8 +204,8 @@ def run_setup() -> int:
     print()
 
     _print_step(4, "Seed a TOML config (optional)")
-    print(f"  ~/.etoro-tui/config.toml lets you customise the indices list,")
-    print(f"  point at local data sources, and tune refresh cadences.")
+    print("  ~/.etoro-tui/config.toml lets you customise the indices list,")
+    print("  point at local data sources, and tune refresh cadences.")
     print()
     if _yes("Seed it from docs/config.example.toml?", default=True):
         seeded = _seed_config_toml()

@@ -1,19 +1,15 @@
 """Shared pytest fixtures."""
-import pytest
+
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture
 def tmp_signals_csv(tmp_path: Path) -> Path:
     """Sample etoro.csv with TKR and BS columns."""
     p = tmp_path / "etoro.csv"
-    p.write_text(
-        "TKR,NAME,BS\n"
-        "AAPL,Apple Inc,B\n"
-        "MSFT,Microsoft,H\n"
-        "TSLA,Tesla Inc,S\n"
-        "TM,Toyota,I\n"
-    )
+    p.write_text("TKR,NAME,BS\nAAPL,Apple Inc,B\nMSFT,Microsoft,H\nTSLA,Tesla Inc,S\nTM,Toyota,I\n")
     return p
 
 
@@ -21,6 +17,7 @@ def tmp_signals_csv(tmp_path: Path) -> Path:
 def tmp_census_dir(tmp_path: Path) -> Path:
     """Sample census archive dir with one JSON file."""
     import json
+
     d = tmp_path / "census"
     d.mkdir()
     sample = {
@@ -45,5 +42,3 @@ def tmp_census_dir(tmp_path: Path) -> Path:
     }
     (d / "etoro-data-2026-05-04-03-34.json").write_text(json.dumps(sample))
     return d
-
-

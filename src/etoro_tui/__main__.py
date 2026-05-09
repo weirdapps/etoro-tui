@@ -1,4 +1,5 @@
 """Entry point for `python -m etoro_tui` / `etoro-tui` / `etoro-tui setup`."""
+
 from __future__ import annotations
 
 import argparse
@@ -8,10 +9,8 @@ import sys
 from . import config, storage
 from .app import EtoroTuiApp
 
-
 _DISCLAIMER = (
-    "etoro-tui — unofficial. Not affiliated with eToro. Not financial "
-    "advice. Use at your own risk."
+    "etoro-tui — unofficial. Not affiliated with eToro. Not financial advice. Use at your own risk."
 )
 
 
@@ -21,8 +20,9 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Live eToro portfolio TUI with intelligence overlays.",
         epilog=_DISCLAIMER,
     )
-    p.add_argument("--demo", action="store_true",
-                   help="Run with synthetic data (no API calls, no credentials)")
+    p.add_argument(
+        "--demo", action="store_true", help="Run with synthetic data (no API calls, no credentials)"
+    )
     p.add_argument("--version", action="store_true", help="Print version and exit")
     sub = p.add_subparsers(dest="command")
     sub.add_parser("setup", help="Interactive wizard to set up eToro API credentials")
@@ -31,7 +31,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_demo() -> int:
     """Launch with synthetic state — bypasses credential check and live API."""
-    from .demo import build_demo_state, build_demo_indices
+    from .demo import build_demo_indices, build_demo_state
+
     state = build_demo_state()
     app = EtoroTuiApp(initial_state=state, disable_polling=True)
     app._demo_indices = build_demo_indices()  # consumed in on_mount when present
@@ -53,9 +54,7 @@ def _setup_logging() -> None:
     config.ETORO_TUI_HOME.mkdir(parents=True, exist_ok=True)
     log_path = config.ETORO_TUI_HOME / "etoro-tui.log"
     handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s: %(message)s"
-    ))
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     # Replace any prior handlers (e.g. from a previous basicConfig call) so
@@ -76,11 +75,13 @@ def main() -> int:
 
     if args.version:
         from . import __version__
+
         print(f"etoro-tui {__version__}")
         return 0
 
     if args.command == "setup":
         from .setup_wizard import run_setup
+
         return run_setup()
 
     if args.demo:
@@ -91,9 +92,11 @@ def main() -> int:
         config.get_credentials()
     except config.AuthMissingError as e:
         print(f"etoro-tui: {e}", file=sys.stderr)
-        print("Tip: run `etoro-tui setup` for an interactive wizard, "
-              "or `etoro-tui --demo` to try the UI without keys.",
-              file=sys.stderr)
+        print(
+            "Tip: run `etoro-tui setup` for an interactive wizard, "
+            "or `etoro-tui --demo` to try the UI without keys.",
+            file=sys.stderr,
+        )
         return 2
 
     try:

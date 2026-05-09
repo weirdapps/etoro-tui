@@ -1,13 +1,13 @@
 """SQLite snapshot persistence for sparklines."""
+
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable
 
 from .models import AccountSummary, Position
-
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS equity_snapshots (
@@ -51,20 +51,28 @@ def write_snapshot(
     positions: Iterable[Position],
 ) -> None:
     """Insert one snapshot row in equity_snapshots and one per position."""
-    ts = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+    ts = datetime.now(UTC).isoformat(timespec="microseconds")
     conn.execute(
         "INSERT OR REPLACE INTO equity_snapshots VALUES (?, ?, ?, ?, ?)",
         (ts, account.equity, account.cash, account.unrealized, account.realized),
     )
     rows = [
-        (ts, p.position_id, p.symbol, p.units, p.open_rate,
-         p.current_rate, p.value, p.pnl, p.pnl_pct)
+        (
+            ts,
+            p.position_id,
+            p.symbol,
+            p.units,
+            p.open_rate,
+            p.current_rate,
+            p.value,
+            p.pnl,
+            p.pnl_pct,
+        )
         for p in positions
     ]
     if rows:
         conn.executemany(
-            "INSERT OR REPLACE INTO position_snapshots VALUES "
-            "(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO position_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
     conn.commit()
@@ -88,8 +96,7 @@ def read_equity_sparkline(
 ) -> tuple[float, ...]:
     """Return equity time series (oldest → newest), downsampled."""
     rows = conn.execute(
-        "SELECT equity FROM equity_snapshots "
-        "WHERE ts > datetime('now', ?) ORDER BY ts",
+        "SELECT equity FROM equity_snapshots WHERE ts > datetime('now', ?) ORDER BY ts",
         (f"-{hours} hours",),
     ).fetchall()
     return _downsample([r[0] for r in rows], max_points)

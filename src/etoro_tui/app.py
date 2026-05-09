@@ -1,14 +1,15 @@
 # src/etoro_tui/app.py
 """EtoroTuiApp — the Textual application that owns AppState and timers."""
+
 from __future__ import annotations
 
 import logging
 import sqlite3
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import replace
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterable, Optional, TypedDict
+from datetime import UTC, datetime
+from typing import TypedDict
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -30,25 +31,26 @@ from .models import (
     Signal,
     Status,
 )
+from .widgets.footer import Footer
+from .widgets.header import Header
+from .widgets.help_modal import HelpModal
+from .widgets.positions_table import SORT_LABELS, PositionsTable
+
+log = logging.getLogger(__name__)
 
 
 class _OverlayKwargs(TypedDict):
     """Typed kwargs for the overlay fields on Position. Mirrors the field
     names exactly so `Position(..., **_overlay_fields(...))` typechecks.
     """
-    signal: Optional[Signal]
-    pi_pct: Optional[float]
-    pe_trailing: Optional[float]
-    pe_forward: Optional[float]
-    upside_pct: Optional[float]
-    analyst_buy_pct: Optional[float]
-    target_price: Optional[float]
-from .widgets.footer import Footer
-from .widgets.header import Header
-from .widgets.help_modal import HelpModal
-from .widgets.positions_table import PositionsTable, SORT_LABELS
 
-log = logging.getLogger(__name__)
+    signal: Signal | None
+    pi_pct: float | None
+    pe_trailing: float | None
+    pe_forward: float | None
+    upside_pct: float | None
+    analyst_buy_pct: float | None
+    target_price: float | None
 
 
 def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str, int]]:
@@ -56,9 +58,11 @@ def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str
     pairs that actually exist in the census. The list comes from the user's
     TOML config or falls back to a curated default in config.DEFAULT_INDICES."""
     sym_to_id = {info.symbol.upper(): inst_id for inst_id, info in instruments.items()}
-    return [(name, sym_to_id[sym.upper()])
-            for name, sym in config.get_indices()
-            if sym.upper() in sym_to_id]
+    return [
+        (name, sym_to_id[sym.upper()])
+        for name, sym in config.get_indices()
+        if sym.upper() in sym_to_id
+    ]
 
 
 def _build_indices(
@@ -153,7 +157,7 @@ def _to_position(
     sym = info.symbol.upper()
     units = float(raw["units"])
     open_ocr = float(raw.get("openConversionRate", 1.0))
-    open_rate = float(raw["openRate"]) * open_ocr        # local→USD (cost basis)
+    open_rate = float(raw["openRate"]) * open_ocr  # local→USD (cost basis)
 
     # Pick the first sensible live (price, FX) pair. Walk keys explicitly so
     # a 0.0 (briefly possible during corp actions / data glitches) doesn't
@@ -191,8 +195,7 @@ def _to_position(
     direction_sign = 1 if is_buy else -1
     value = current_rate * units
     pnl = (current_rate - open_rate) * units * direction_sign
-    pnl_pct = ((current_rate - open_rate) / open_rate * 100 * direction_sign
-               if open_rate else 0.0)
+    pnl_pct = (current_rate - open_rate) / open_rate * 100 * direction_sign if open_rate else 0.0
     fund = fundamentals.get(sym)
     return Position(
         position_id=raw["positionID"],
@@ -232,34 +235,36 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
     for sym, ps in groups.items():
         first = ps[0]
         units = sum(p.units for p in ps)
-        cost = sum(p.units * p.open_rate for p in ps)   # USD invested
+        cost = sum(p.units * p.open_rate for p in ps)  # USD invested
         value = sum(p.value for p in ps)
         pnl = sum(p.pnl for p in ps)
         avg_open = cost / units if units else first.open_rate
         avg_curr = value / units if units else first.current_rate
         pnl_pct = (pnl / cost * 100) if cost else 0.0
         oldest = min(p.open_ts for p in ps)
-        out.append(Position(
-            position_id=first.position_id,
-            symbol=sym,
-            direction=first.direction,
-            units=units,
-            open_rate=avg_open,
-            current_rate=avg_curr,
-            value=value,
-            pnl=pnl,
-            pnl_pct=pnl_pct,
-            open_ts=oldest,
-            signal=first.signal,
-            pi_pct=first.pi_pct,
-            position_count=len(ps),
-            pe_trailing=first.pe_trailing,
-            pe_forward=first.pe_forward,
-            upside_pct=first.upside_pct,
-            analyst_buy_pct=first.analyst_buy_pct,
-            target_price=first.target_price,
-            prev_close=first.prev_close,
-        ))
+        out.append(
+            Position(
+                position_id=first.position_id,
+                symbol=sym,
+                direction=first.direction,
+                units=units,
+                open_rate=avg_open,
+                current_rate=avg_curr,
+                value=value,
+                pnl=pnl,
+                pnl_pct=pnl_pct,
+                open_ts=oldest,
+                signal=first.signal,
+                pi_pct=first.pi_pct,
+                position_count=len(ps),
+                pe_trailing=first.pe_trailing,
+                pe_forward=first.pe_forward,
+                upside_pct=first.upside_pct,
+                analyst_buy_pct=first.analyst_buy_pct,
+                target_price=first.target_price,
+                prev_close=first.prev_close,
+            )
+        )
     return tuple(out)
 
 
@@ -272,7 +277,7 @@ def _account_from(positions: tuple[Position, ...], credit: float) -> AccountSumm
         cash=credit,
         unrealized=unrealized,
         realized=0.0,  # not exposed by the public-api endpoint we use
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
     )
 
 
@@ -295,21 +300,24 @@ class EtoroTuiApp(App[None]):
 
     def __init__(
         self,
-        initial_state: Optional[AppState] = None,
+        initial_state: AppState | None = None,
         disable_polling: bool = False,
-        etoro_client: Optional[EtoroClient] = None,
+        etoro_client: EtoroClient | None = None,
     ) -> None:
         super().__init__()
         self._state: AppState = initial_state or AppState(
-            account=None, positions=(), last_error=None,
-            status="live", equity_sparkline=(),
+            account=None,
+            positions=(),
+            last_error=None,
+            status="live",
+            equity_sparkline=(),
         )
         self._disable_polling = disable_polling
         self._etoro_client = etoro_client
         self._signals = SignalsReader(config.SIGNALS_CSV)
         self._census = CensusReader(config.CENSUS_GLOB_DIR, config.CENSUS_GLOB_PATTERN)
-        self._db: Optional[sqlite3.Connection] = None
-        self._opening_equity_today: Optional[float] = None
+        self._db: sqlite3.Connection | None = None
+        self._opening_equity_today: float | None = None
 
     # ------- composition -------
 
@@ -375,8 +383,7 @@ class EtoroTuiApp(App[None]):
         # fails, degrade to census (yesterday's close) silently so the UI
         # doesn't break.
         unique_ids = sorted(
-            {raw["instrumentID"] for raw in raw_positions}
-            | {iid for _, iid in index_pairs}
+            {raw["instrumentID"] for raw in raw_positions} | {iid for _, iid in index_pairs}
         )
         rates: dict[int, dict] = {}
         prices_live = False
@@ -433,8 +440,11 @@ class EtoroTuiApp(App[None]):
         # are also live; degraded when we fell back to census silently.
         status: Status = "live" if prices_live else "degraded"
         self._state = AppState(
-            account=acct, positions=positions, last_error=None,
-            status=status, equity_sparkline=spark,
+            account=acct,
+            positions=positions,
+            last_error=None,
+            status=status,
+            equity_sparkline=spark,
         )
         self.query_one(Footer).prices_source = "live" if prices_live else "census"
         self._render_state()
@@ -449,14 +459,21 @@ class EtoroTuiApp(App[None]):
         fundamentals = self._signals.fundamentals()
         census = self._census.read()
         new_positions = tuple(
-            replace(p, **_overlay_fields(
-                p.symbol, fundamentals.get(p.symbol), census,
-            ))
+            replace(
+                p,
+                **_overlay_fields(
+                    p.symbol,
+                    fundamentals.get(p.symbol),
+                    census,
+                ),
+            )
             for p in self._state.positions
         )
         self._state = AppState(
-            account=self._state.account, positions=new_positions,
-            last_error=self._state.last_error, status=self._state.status,
+            account=self._state.account,
+            positions=new_positions,
+            last_error=self._state.last_error,
+            status=self._state.status,
             equity_sparkline=self._state.equity_sparkline,
         )
         self._render_state()
@@ -485,8 +502,7 @@ class EtoroTuiApp(App[None]):
             header.open_pnl = self._state.account.unrealized
             if self._opening_equity_today is not None:
                 delta = self._state.account.equity - self._opening_equity_today
-                pct = (delta / self._opening_equity_today * 100
-                       if self._opening_equity_today else 0)
+                pct = delta / self._opening_equity_today * 100 if self._opening_equity_today else 0
                 header.today_delta = (delta, pct)
                 header.today_baseline_known = True
             else:
@@ -498,7 +514,7 @@ class EtoroTuiApp(App[None]):
         footer = self.query_one(Footer)
         footer.last_error = self._state.last_error
 
-    def _bootstrap_today_baseline(self) -> Optional[float]:
+    def _bootstrap_today_baseline(self) -> float | None:
         """Return a 'reference equity' for today's Δ from snapshot history.
 
         Strategy: oldest snapshot in the trailing 24h. This approximates
@@ -516,8 +532,11 @@ class EtoroTuiApp(App[None]):
 
     def _set_error(self, msg: str, status: Status) -> None:
         self._state = AppState(
-            account=self._state.account, positions=self._state.positions,
-            last_error=msg, status=status, equity_sparkline=self._state.equity_sparkline,
+            account=self._state.account,
+            positions=self._state.positions,
+            last_error=msg,
+            status=status,
+            equity_sparkline=self._state.equity_sparkline,
         )
         self._render_state()
 
@@ -548,18 +567,18 @@ class EtoroTuiApp(App[None]):
                 census_mtime = files[-1].stat().st_mtime
         except OSError:
             pass
-        self.push_screen(HelpModal(
-            auth_source=source,
-            snapshot_db=str(config.SNAPSHOT_DB_PATH),
-            signals_mtime=self._signals.mtime(),
-            census_mtime=census_mtime,
-        ))
+        self.push_screen(
+            HelpModal(
+                auth_source=source,
+                snapshot_db=str(config.SNAPSHOT_DB_PATH),
+                signals_mtime=self._signals.mtime(),
+                census_mtime=census_mtime,
+            )
+        )
 
     # ------- messages -------
 
-    def on_positions_table_sort_changed(
-        self, message: PositionsTable.SortChanged
-    ) -> None:
+    def on_positions_table_sort_changed(self, message: PositionsTable.SortChanged) -> None:
         self.query_one(Footer).sort_label = SORT_LABELS.get(message.key, str(message.key))
 
     # NOTE: PositionsTable.PositionSelected message is no longer consumed —
