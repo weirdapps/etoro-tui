@@ -9,3 +9,15 @@ venv/
 dist/
 build/
 .DS_Store
+
+# Credentials — never commit. Real keys live in the system keyring or
+# ~/.etoro-tui/.env (outside the repo). These patterns are belt-and-braces
+# in case a credential file is ever copied or generated inside the repo cwd.
+.env
+.env.*
+*.envfile
+.etoro-tui/
+*.key
+*.pem
+credentials.*
+secrets.*

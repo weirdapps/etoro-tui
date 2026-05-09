@@ -23,7 +23,6 @@ ETORO_BASE_URL = "https://public-api.etoro.com"
 POLL_PORTFOLIO_S = 5
 POLL_SIGNALS_S = 30
 POLL_CENSUS_S = 60
-POLL_NEWS_S = 300
 SNAPSHOT_S = 60
 
 # Local user data root.
@@ -35,8 +34,7 @@ CACHE_DIR = ETORO_TUI_HOME / "cache"
 
 # Default overlay sources. The user can override paths via TOML; if a path
 # doesn't exist locally, the corresponding client falls back to the GitHub
-# raw URL (built into the clients themselves). News is local-only — no
-# public mirror — and is silently skipped when the DB isn't present.
+# raw URL (built into the clients themselves).
 SIGNALS_CSV = Path.home() / "SourceCode" / "etorotrade" / "yahoofinance" / "output" / "etoro.csv"
 SIGNALS_GITHUB_URL = (
     "https://raw.githubusercontent.com/weirdapps/etorotrade/main/yahoofinance/output/etoro.csv"
@@ -47,11 +45,6 @@ CENSUS_GLOB_PATTERN = "etoro-data-*.json"
 CENSUS_GITHUB_REPO = "weirdapps/etoro_census"      # <owner>/<repo>
 CENSUS_GITHUB_BRANCH = "data-archive"
 CENSUS_GITHUB_PATH = "data"                         # path within the branch
-
-NEWS_DB_PATH = Path(os.environ.get(
-    "NEWS_READER_DB",
-    str(Path.home() / "SourceCode" / "news" / "data" / "news.db"),
-))
 
 # Default indices for the side panel. Override via TOML [indices].list.
 DEFAULT_INDICES: tuple[tuple[str, str], ...] = (
@@ -112,7 +105,6 @@ def _path_override(*keys: str, default: Path) -> Path:
 # Apply TOML path overrides (after defaults are defined)
 SIGNALS_CSV     = _path_override("paths", "signals_csv",     default=SIGNALS_CSV)
 CENSUS_GLOB_DIR = _path_override("paths", "census_dir",      default=CENSUS_GLOB_DIR)
-NEWS_DB_PATH    = _path_override("paths", "news_db",         default=NEWS_DB_PATH)
 SNAPSHOT_DB_PATH = _path_override("paths", "snapshot_db",    default=SNAPSHOT_DB_PATH)
 
 

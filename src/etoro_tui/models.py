@@ -26,8 +26,6 @@ class Position:
     # overlays — None means unavailable
     signal: Optional[Signal] = None        # I (inconclusive) → None
     pi_pct: Optional[float] = None         # 0.0–100.0
-    news_24h: Optional[int] = None
-    news_anomaly: bool = False             # True when count > 1.5 × 7d avg
     position_count: int = 1                # >1 when this row aggregates several raw positions
     # Fundamentals (etorotrade CSV, daily refresh; None for ETFs/crypto/illiquid):
     pe_trailing: Optional[float] = None    # trailing 12m P/E
@@ -35,6 +33,10 @@ class Position:
     upside_pct: Optional[float] = None     # analyst target price implied % upside
     analyst_buy_pct: Optional[float] = None  # % of analyst recommendations = Buy
     target_price: Optional[float] = None   # consensus target price (issuer currency)
+    # Yesterday's close (census priceData.currentPrice) — used for the Δday
+    # column. None when the symbol is not in the census file. Stored in the
+    # instrument's local listing currency, same as census.
+    prev_close: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -57,23 +59,6 @@ class IndexSummary:
     name: str
     last: float
     change_pct: float
-
-
-@dataclass(frozen=True)
-class ActionsSummary:
-    """Buckets of portfolio actions inferred from etorotrade signals + holdings.
-
-    buy   — top etorotrade BUY signals NOT held (new ideas, by upside)
-    add   — currently held positions with BUY signal (build up)
-    hold  — currently held positions with HOLD signal (steady)
-    trim  — currently held with SELL signal AND <3% of equity (small concern)
-    sell  — currently held with SELL signal AND ≥3% of equity (urgent)
-    """
-    buy: tuple[str, ...]
-    add: tuple[str, ...]
-    hold: tuple[str, ...]
-    trim: tuple[str, ...]
-    sell: tuple[str, ...]
 
 
 @dataclass(frozen=True)

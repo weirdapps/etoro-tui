@@ -13,7 +13,6 @@ from textual.widgets import Static
 
 _BINDINGS_TABLE = (
     ("↑ / ↓",     "select row"),
-    ("Enter",     "toggle detail panel"),
     ("s",         "cycle sort"),
     ("/",         "filter by symbol substring"),
     ("Esc",       "clear filter / close modal"),
@@ -24,19 +23,18 @@ _BINDINGS_TABLE = (
 
 # Each tuple: (column header, what it actually is, refresh cadence).
 _DATA_LEGEND = (
-    ("Symbol",  "eToro instrument symbol",                 "live"),
-    ("Open",    "weighted-avg cost per unit, USD",         "static"),
-    ("Last",    "last execution (eToro /market-data/rates)","live ~5s"),
-    ("Δ%",      "(Last − Open) / Open · 100  — total since open, NOT today",  "live"),
-    ("Value $", "units × Last",                            "live"),
-    ("% Eq",    "Value / total equity",                    "live"),
-    ("P&L $",   "(Last − Open) × units · dir — total since open, NOT today",  "live"),
-    ("PE-T",    "trailing 12m P/E (etorotrade)",           "daily ~22 UTC"),
-    ("PE-F",    "forward 12m P/E (etorotrade)",            "daily"),
-    ("Up%",     "analyst-target implied upside",           "daily"),
-    ("Buy%",    "% of analyst recs = BUY",                 "daily"),
-    ("PI%",     "% of eToro popular investors holding",    "daily"),
-    ("Sig",     "etorotrade BUY / SELL / HOLD",            "daily"),
+    ("SYMBOL",     "eToro instrument symbol",                 "live"),
+    ("Price",      "last execution (eToro /market-data/rates)","live ~5s"),
+    ("Δday",       "(Price − prev_close) / prev_close · 100 — today's move; prev_close = census yesterday-close, FX-adjusted",  "live ~5s"),
+    ("Value",      "units × Price",                            "live"),
+    ("Allocation", "Value / total equity",                     "live"),
+    ("Profit",     "(Price − Open) × units · dir — total since open, NOT today",  "live"),
+    ("PET",        "trailing 12m P/E (etorotrade)",            "daily ~22 UTC"),
+    ("PEF",        "forward 12m P/E (etorotrade)",             "daily"),
+    ("Upside",     "analyst-target implied upside",            "daily"),
+    ("Buy %",      "% of analyst recs = BUY",                  "daily"),
+    ("PIs",        "% of eToro popular investors holding",     "daily"),
+    ("Signal",     "etorotrade BUY / SELL / HOLD",             "daily"),
 )
 
 
@@ -76,11 +74,12 @@ def _build_body(
     parts.append(("(eToro REST every 5s — open/close/amend reflects within seconds)\n", ""))
     parts.append(("  • Cash credit    ", "dim"))
     parts.append(("(same fetch as positions)\n", ""))
-    parts.append(("  • Last / Value / Δ% / P&L  ", "dim"))
+    parts.append(("  • Price / Value / Δday / Profit  ", "dim"))
     parts.append(("(eToro /market-data/rates every 5s, batched all symbols)\n", ""))
     parts.append(("\nWhat is daily-refreshed\n", "bold cyan"))
-    parts.append(("  Fundamentals (PE-T, PE-F, Up%, Buy%, Sig) come from etorotrade's\n", "dim"))
-    parts.append(("  CSV, regenerated nightly. PI% comes from census, regenerated daily.\n", "dim"))
+    parts.append(("  Fundamentals (PET, PEF, Upside, Buy %, Signal) come from etorotrade's\n", "dim"))
+    parts.append(("  CSV, regenerated nightly. PIs and Δday's prev_close come from census,\n", "dim"))
+    parts.append(("  regenerated daily.\n", "dim"))
     parts.append(("\nFallback behaviour\n", "bold cyan"))
     parts.append(("  If the live rates endpoint fails, prices fall back to census\n", "dim"))
     parts.append(("  (yesterday's close). The footer indicator turns yellow ('census\n", "dim"))

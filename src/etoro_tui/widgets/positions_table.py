@@ -2,28 +2,29 @@
 
 Column labels are deliberately precise so nothing is mistaken for live data:
 
-  Symbol  — eToro instrument symbol (live; positions added/removed as you trade)
-  Last    — last execution from /market-data/instruments/rates (LIVE, ~5s poll)
-            falls back to census priceData (yesterday's close) if rates fail
-  Δ%      — total % change since each lot's open price, NOT today's change
-            (avg-open is shown in the detail panel)
-  Value   — units × Last, in USD (live, integer rounding)
-  % Eq    — Value / total equity (live)
-  P&L $   — (Last − Open) × units × dir, total since open, NOT today's change
-            (live, integer rounding)
-  PE-T    — trailing 12m P/E from etorotrade (DAILY ~22:00 UTC)
-  PE-F    — forward 12m P/E (DAILY)
-  Up%     — analyst-target implied upside (DAILY)
-  Buy%    — % of analyst recs = BUY (DAILY)
-  PI%     — % of eToro popular investors holding (DAILY)
-  Sig     — etorotrade BUY / SELL / HOLD (DAILY)
+  SYMBOL    — eToro instrument symbol (live; positions added/removed as you trade)
+  Price     — last execution from /market-data/instruments/rates (LIVE, ~5s poll)
+              falls back to census priceData (yesterday's close) if rates fail
+  Δday      — (Price − prev_close) / prev_close · 100, where prev_close is
+              yesterday's close from census priceData (DAILY refresh ~00:00 UTC).
+              Shows "—" for symbols not covered by census.
+  Value     — units × Price, in USD (live, integer rounding)
+  Allocation — Value / total equity (live)
+  Profit    — (Price − Open) × units × dir, total since open, NOT today's change
+              (live, integer rounding). For lifetime % return see detail panel.
+  PET       — trailing 12m P/E from etorotrade (DAILY ~22:00 UTC)
+  PEF       — forward 12m P/E (DAILY)
+  Upside    — analyst-target implied upside (DAILY)
+  Buy %     — % of analyst recs = BUY (DAILY)
+  PIs       — % of eToro popular investors holding (DAILY)
+  Signal    — etorotrade BUY / SELL / HOLD (DAILY)
 
 Lots and per-position Units live in the detail panel — for daily glance the
 aggregated $ matters more than how many lots accumulated it.
 
-There is no "today's Δ" column — eToro's free retail endpoint does not return
-intraday or session-open prices, so we cannot honestly compute one. Header
-shows session-vs-snapshot equity Δ instead.
+Δday uses census `currentPrice` (yesterday's close) as prev_close, FX-adjusted
+to USD with the live OCR; if a symbol is not in the census file (rare for
+US stocks, common for some illiquid instruments) Δday shows "—".
 """
 from __future__ import annotations
 
@@ -39,135 +40,226 @@ from textual.widgets import DataTable, Input
 from ..models import Position
 
 
-SortKey = Literal["value", "pnl", "pnl_pct", "upside_pct", "analyst_buy_pct",
+SortKey = Literal["value", "pnl", "day_change_pct", "upside_pct", "analyst_buy_pct",
                   "pe_forward", "symbol", "signal"]
 _SORT_CYCLE: list[SortKey] = [
-    "value", "pnl", "pnl_pct", "upside_pct", "analyst_buy_pct",
+    "value", "pnl", "day_change_pct", "upside_pct", "analyst_buy_pct",
     "pe_forward", "signal", "symbol",
 ]
 SORT_LABELS: dict[SortKey, str] = {
     "value": "Value ↓",
-    "pnl": "P&L ↓",
-    "pnl_pct": "Δ% ↓",
+    "pnl": "Profit ↓",
+    "day_change_pct": "Δday ↓",
     "upside_pct": "Upside ↓",
-    "analyst_buy_pct": "Buy% ↓",
-    "pe_forward": "PE-F ↑",   # cheaper first
+    "analyst_buy_pct": "Buy % ↓",
+    "pe_forward": "PEF ↑",   # cheaper first
     "signal": "Signal",
-    "symbol": "Symbol",
+    "symbol": "SYMBOL",
 }
 
 _SIG_STYLE = {
-    "BUY": ("green", "BUY"),
-    "SELL": ("red", "SELL"),
-    "HOLD": ("dim", "HOLD"),
+    "BUY":  ("bold green", "BUY"),
+    "SELL": ("bold red",   "SELL"),
+    "HOLD": ("dim",        "HOLD"),
 }
 
-# (label, width). Width = None lets DataTable auto-size; explicit widths give
-# justify="right" Text actual room to right-align inside the cell.
-# Total ≈ 110 chars (excluding Symbol auto-size). Fits a 130+ col terminal
-# alongside a 48-col detail panel.
-# Column widths sized to actual data widths observed in real use.
-# Total interior width ≈ 78 chars + cell padding ≈ 91 chars. Saves ~9 cols
-# vs. previous, freeing room to widen the detail panel without scrolling.
-_COLS: tuple[tuple[str, int | None], ...] = (
-    ("Symbol",   None),  # auto — covers AAPL through NOVO-B.CO
-    ("Last",        8),  # "1,234.56" / "81,469"
-    ("Δ%",          6),  # "+82.31"
-    ("Value $",     8),  # "1,234,56" — integer up to 7 digits
-    ("% Eq",        5),  # "9.5%"
-    ("P&L $",       9),  # "−1,234,56" signed integer
-    ("PE-T",        5),  # "131.4"
-    ("PE-F",        5),  # "78.2"
-    ("Up%",         6),  # "+103.1"
-    ("Buy%",        5),  # "100%"
-    ("PI%",         4),  # "<1%" / "39%"
-    ("Sig",         4),  # "BUY" / "HOLD" / "SELL" / "—"
+# Column specifications. Each tuple = (label, key, min_inner, flex_weight, align).
+#   - label: header text (with "│ " prefix for non-first columns so the divider
+#     also appears in the header row, vertically aligned with cell dividers).
+#   - key: short name used by formatters as a key into _INNER / _ALIGN.
+#   - min_inner: minimum inner width (excludes the "│ " prefix). Column will
+#     never shrink below this even on narrow terminals.
+#   - flex_weight: extra terminal width is distributed proportionally to this.
+#     Columns whose data benefits from room (Profit, Value, SYMBOL) get higher
+#     weights; tight numeric columns (PET, PIs) get lower weights.
+#   - align: how the value is positioned within inner_width.
+_COL_SPECS: tuple[tuple[str, str, int, float, str], ...] = (
+    ("SYMBOL",    "SYMBOL",   9, 1.0, "left"),
+    ("│ Price",   "Price",    8, 1.2, "right"),
+    ("│ Δday",    "Δday",     8, 0.8, "right"),
+    ("│ Value",   "Value",    9, 1.2, "right"),
+    ("│ Alloc",   "Alloc",    6, 0.4, "right"),
+    ("│ Profit",  "Profit",   9, 1.5, "right"),
+    ("│ PET",     "PET",      5, 0.3, "right"),
+    ("│ PEF",     "PEF",      5, 0.3, "right"),
+    ("│ Upside",  "Upside",   7, 0.8, "right"),
+    ("│ Buy %",   "Buy %",    6, 0.4, "right"),
+    ("│ PIs",     "PIs",      5, 0.3, "right"),
+    ("│ Signal",  "Signal",   6, 0.4, "center"),
 )
+
+# Mutable inner widths — compute_widths() updates these on mount/resize, and
+# formatters read them via _cell(). Single source of truth so formatters and
+# DataTable column widths can never drift apart.
+_INNER: dict[str, int] = {key: minw for _, key, minw, _, _ in _COL_SPECS}
+_ALIGN: dict[str, str] = {key: a for _, key, _, _, a in _COL_SPECS}
+
+
+def compute_widths(available_chars: int) -> None:
+    """Distribute terminal width across columns by flex weight.
+
+    Mutates _INNER so all formatters automatically use the new widths. Call
+    this on mount and on terminal resize.
+
+    `available_chars` = the width the table widget gets (typically the full
+    screen width for our layout where the table spans 1fr).
+    """
+    base_sum = sum(spec[2] for spec in _COL_SPECS)
+    flex_sum = sum(spec[3] for spec in _COL_SPECS)
+    # Per-column overhead inside DataTable:
+    #   - SYMBOL has no "│ " prefix; all 11 others contribute 2 chars for it.
+    #   - Default cell_padding=1 each side ⇒ 2 chars per column.
+    #   - 1 extra for the cursor column / scrollbar.
+    sep_overhead = sum(2 for label, *_ in _COL_SPECS if label.startswith("│"))
+    cell_padding = len(_COL_SPECS) * 2
+    overhead = sep_overhead + cell_padding + 1
+    extra = max(0, available_chars - base_sum - overhead)
+    if flex_sum <= 0 or extra <= 0:
+        # Reset to mins (tightest layout for narrow terminals).
+        for _, key, minw, _, _ in _COL_SPECS:
+            _INNER[key] = minw
+        return
+    for _, key, minw, flex, _ in _COL_SPECS:
+        _INNER[key] = minw + round(extra * flex / flex_sum)
+
+
+def _grad_color(magnitude: float, thresholds: tuple[float, float],
+                positive: bool) -> str:
+    """Bloomberg 3-tier colour: bright/normal/dim by magnitude.
+
+    `thresholds` = (small, large). Below small → dim, above large → bold.
+    `positive` selects green (True) or red (False).
+    """
+    base = "green" if positive else "red"
+    a = abs(magnitude)
+    if a >= thresholds[1]:
+        return f"bold bright_{base}"
+    if a >= thresholds[0]:
+        return base
+    return f"dim {base}"
+
+# (label, width). Width = None lets DataTable auto-size; explicit widths
+# include the inline "│ " separator (2 chars) injected by each formatter.
+# Bloomberg-style column dividers are baked into cell text since Textual's
+# DataTable has no native show_dividers option.
+
+
+def _cell(value: str, col: str, *, style: str = "", align: str | None = None) -> Text:
+    """Build a cell with the divider at position 0 + value padded in remaining space.
+
+    Returns a Rich Text whose first 2 chars are the dim divider, followed by
+    the value right/center/left-aligned within (col_width - 2) chars. This
+    keeps all │ characters perfectly column-aligned regardless of value width.
+
+    `align` defaults to the per-column alignment from _ALIGN.
+    """
+    inner = _INNER[col]
+    a = align or _ALIGN.get(col, "right")
+    if a == "right":
+        padded = f"{value:>{inner}}"
+    elif a == "center":
+        padded = f"{value:^{inner}}"
+    else:
+        padded = f"{value:<{inner}}"
+    return Text("│ ", style="dim") + Text(padded, style=style)
 
 
 def _money(v: float) -> Text:
-    """Two-decimal money for prices (Last column)."""
-    return Text(f"{v:,.2f}", justify="right")
+    """Two-decimal money for the Price column."""
+    return _cell(f"{v:,.2f}", "Price")
 
 
 def _money_int(v: float) -> Text:
-    """Integer money for $-amount columns (Value, P&L) — no decimals."""
-    return Text(f"{v:,.0f}", justify="right")
+    """Integer money for the Value column."""
+    return _cell(f"{v:,.0f}", "Value")
 
 
 def _signal(s: str | None) -> Text:
+    """Signal cell — bold BUY/SELL, dim HOLD/missing. Centred."""
     if s is None:
-        return Text("—", style="dim", justify="center")
+        return _cell("—", "Signal", style="dim", align="center")
     style, label = _SIG_STYLE.get(s, ("", str(s)))
-    return Text(label, style=style, justify="center")
+    return _cell(label, "Signal", style=style, align="center")
 
 
 def _pi(p: float | None) -> Text:
     if p is None:
-        return Text("—", style="dim", justify="right")
+        return _cell("—", "PIs", style="dim")
     if p < 0.5:
-        return Text("<1%", style="dim", justify="right")
-    return Text(f"{p:.0f}%", justify="right")
+        return _cell("<1%", "PIs", style="dim")
+    return _cell(f"{p:.0f}%", "PIs")
 
 
-def _delta_pct(pct: float) -> Text:
-    color = "green" if pct >= 0 else "red"
+def _day_change_pct(curr: float, prev: float | None) -> Text:
+    """Δday with magnitude-coded triangle and intensity-graded colour.
+
+    ▲ = ≥ 1% gain  ▴ = small gain
+    ▼ = ≥ 1% loss  ▾ = small loss
+    Colour: dim only sub-noise (<0.1%), normal for 0.1-1%, bold bright for ≥1%.
+    '—' when prev_close unavailable.
+    """
+    if prev is None or prev <= 0:
+        return _cell("—", "Δday", style="dim")
+    pct = (curr - prev) / prev * 100
+    a = abs(pct)
+    if pct >= 0:
+        glyph = "▲" if a >= 1 else "▴"
+    else:
+        glyph = "▼" if a >= 1 else "▾"
     sign = "+" if pct >= 0 else ""
-    return Text(f"{sign}{pct:.2f}", style=color, justify="right")
+    color = _grad_color(pct, thresholds=(0.1, 1.0), positive=pct >= 0)
+    return _cell(f"{glyph}{sign}{pct:.2f}%", "Δday", style=color)
 
 
 def _pnl(pnl: float) -> Text:
-    """Integer P&L — no decimals, signed, coloured."""
-    color = "green" if pnl >= 0 else "red"
+    """Integer Profit — magnitude-coded colour intensity (bright ≥$10k, normal ≥$1k, dim below)."""
     sign = "+" if pnl >= 0 else "−"
-    return Text(f"{sign}{abs(pnl):,.0f}", style=color, justify="right")
+    color = _grad_color(pnl, thresholds=(1_000.0, 10_000.0), positive=pnl >= 0)
+    return _cell(f"{sign}{abs(pnl):,.0f}", "Profit", style=color)
 
 
 def _eq_pct(pct: float) -> Text:
+    """Allocation cell — just the percentage. Bold for ≥10% (concentration)."""
     if pct >= 10:
         style = "bold"
-    elif pct < 2:
+    elif pct < 1:
         style = "dim"
     else:
         style = ""
-    return Text(f"{pct:.1f}%", style=style, justify="right")
+    return _cell(f"{pct:.1f}%", "Alloc", style=style)
 
 
-def _pe(v: float | None) -> Text:
-    """P/E ratio: dim if >40 (expensive) or <0 (loss-making) or missing."""
+def _pe(v: float | None, col: str) -> Text:
+    """P/E ratio: dim if >100 (extreme) or <0 (loss-making) or missing."""
     if v is None:
-        return Text("—", style="dim", justify="right")
+        return _cell("—", col, style="dim")
     if v <= 0 or v > 100:
-        # Loss-making (negative) or extreme — show but dim.
-        return Text(f"{v:.1f}", style="dim", justify="right")
-    return Text(f"{v:.1f}", justify="right")
+        return _cell(f"{v:.1f}", col, style="dim")
+    return _cell(f"{v:.1f}", col)
 
 
 def _upside(v: float | None) -> Text:
-    """Analyst upside %. Green if >=10, red if <=-10, dim if missing."""
+    """Analyst upside %. Bright green ≥25%, green ≥10%, dim if missing."""
     if v is None:
-        return Text("—", style="dim", justify="right")
-    if v >= 10:
-        color = "green"
-    elif v <= -10:
-        color = "red"
-    else:
-        color = ""
+        return _cell("—", "Upside", style="dim")
+    color = _grad_color(v, thresholds=(10.0, 25.0), positive=v >= 0)
     sign = "+" if v >= 0 else ""
-    return Text(f"{sign}{v:.1f}", style=color, justify="right")
+    return _cell(f"{sign}{v:.1f}%", "Upside", style=color)
 
 
 def _buy_pct(v: float | None) -> Text:
-    """Analyst buy %. Green ≥75, red ≤25, dim if missing."""
+    """Analyst buy %. Bold green ≥75, green ≥50, bold red ≤25, dim if missing."""
     if v is None:
-        return Text("—", style="dim", justify="right")
+        return _cell("—", "Buy %", style="dim")
     if v >= 75:
-        color = "green"
+        style = "bold green"
+    elif v >= 50:
+        style = "green"
     elif v <= 25:
-        color = "red"
+        style = "bold red"
     else:
-        color = ""
-    return Text(f"{v:.0f}%", style=color, justify="right")
+        style = "dim"
+    return _cell(f"{v:.0f}%", "Buy %", style=style)
 
 
 class PositionsTable(Vertical):
@@ -191,10 +283,39 @@ class PositionsTable(Vertical):
         yield DataTable(id="positions-table", cursor_type="row", zebra_stripes=True)
 
     def on_mount(self) -> None:
+        # Compute initial widths based on current screen size, then add columns.
+        compute_widths(self._available_width())
+        self._add_columns()
+        self.query_one(DataTable).focus()
+
+    def _available_width(self) -> int:
+        """Width the table widget gets to work with."""
+        # self.size may not be set yet at on_mount, fall back to the screen.
+        w = self.size.width if self.size.width > 0 else 0
+        if w <= 0 and self.app is not None:
+            w = self.app.size.width
+        # Sensible fallback for very early calls / tests.
+        return w if w > 40 else 120
+
+    def _add_columns(self) -> None:
+        """(Re-)add columns using widths from _INNER. Idempotent: clears existing first."""
         table = self.query_one(DataTable)
-        for label, width in _COLS:
-            table.add_column(label, key=label, width=width)
-        table.focus()
+        table.clear(columns=True)
+        for label, key, _, _, _ in _COL_SPECS:
+            inner = _INNER[key]
+            # Non-SYMBOL columns include the "│ " prefix in the cell, so add 2.
+            width = inner + (2 if label.startswith("│") else 0)
+            table.add_column(label, key=key, width=width)
+
+    def on_resize(self) -> None:
+        """Re-flow column widths when the terminal is resized."""
+        if not self.is_mounted:
+            return
+        new_width = self._available_width()
+        compute_widths(new_width)
+        self._add_columns()
+        # Columns were cleared — repopulate rows with the new widths.
+        self._refresh_table()
 
     def cycle_sort(self) -> None:
         idx = _SORT_CYCLE.index(self.sort_key)
@@ -256,6 +377,14 @@ class PositionsTable(Vertical):
             # Cheap first. Treat None as huge so missing data sinks to bottom.
             rows.sort(key=lambda p: p.pe_forward
                       if p.pe_forward is not None and p.pe_forward > 0 else float("inf"))
+        elif key == "day_change_pct":
+            # Computed on the fly from current_rate vs prev_close. Missing
+            # prev_close → bottom. Biggest gain first.
+            def _dc(p: Position) -> float:
+                if p.prev_close is None or p.prev_close <= 0:
+                    return float("-inf")
+                return (p.current_rate - p.prev_close) / p.prev_close * 100
+            rows.sort(key=_dc, reverse=True)
         elif key in ("upside_pct", "analyst_buy_pct"):
             # None → bottom. Higher first.
             rows.sort(key=lambda p: getattr(p, key)
@@ -273,16 +402,16 @@ class PositionsTable(Vertical):
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _money(p.current_rate),     # Last (with decimals — small numbers)
-                _delta_pct(p.pnl_pct),
-                _money_int(p.value),        # Value $ (integer)
-                _eq_pct(pct_eq),
-                _pnl(p.pnl),                # P&L $ (integer)
-                _pe(p.pe_trailing),
-                _pe(p.pe_forward),
-                _upside(p.upside_pct),
-                _buy_pct(p.analyst_buy_pct),
-                _pi(p.pi_pct),
-                _signal(p.signal),
+                _money(p.current_rate),                       # Price (decimals)
+                _day_change_pct(p.current_rate, p.prev_close),  # Δday
+                _money_int(p.value),                          # Value (integer)
+                _eq_pct(pct_eq),                              # Allocation
+                _pnl(p.pnl),                                  # Profit (integer)
+                _pe(p.pe_trailing, "PET"),                    # PET
+                _pe(p.pe_forward, "PEF"),                     # PEF
+                _upside(p.upside_pct),                        # Upside
+                _buy_pct(p.analyst_buy_pct),                  # Buy %
+                _pi(p.pi_pct),                                # PIs
+                _signal(p.signal),                            # Signal
                 key=str(p.position_id),
             )

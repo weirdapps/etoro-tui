@@ -31,13 +31,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _run_demo() -> int:
     """Launch with synthetic state — bypasses credential check and live API."""
-    from .demo import build_demo_state, build_demo_indices, build_demo_actions
+    from .demo import build_demo_state, build_demo_indices
     state = build_demo_state()
-    indices = build_demo_indices()
-    actions = build_demo_actions(state)
     app = EtoroTuiApp(initial_state=state, disable_polling=True)
-    app._demo_indices = indices    # injected; consumed in on_mount when present
-    app._demo_actions = actions
+    app._demo_indices = build_demo_indices()  # consumed in on_mount when present
     try:
         app.run()
     except KeyboardInterrupt:
@@ -45,14 +42,37 @@ def _run_demo() -> int:
     return 0
 
 
+def _setup_logging() -> None:
+    """Route ALL logs to ~/.etoro-tui/etoro-tui.log, never to the terminal.
+
+    A TUI repaints over the screen — anything written to stdout/stderr (httpx
+    request lines, our own INFO logs) flashes briefly between Textual frames
+    and looks like a glitch. Sending logs to a file keeps them available for
+    debugging without painting the user's display.
+    """
+    config.ETORO_TUI_HOME.mkdir(parents=True, exist_ok=True)
+    log_path = config.ETORO_TUI_HOME / "etoro-tui.log"
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    ))
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # Replace any prior handlers (e.g. from a previous basicConfig call) so
+    # nothing else is still bound to stderr.
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    root.addHandler(handler)
+    # httpx is the chattiest at INFO (one line per request, ~5s tick) — pin
+    # it to WARNING so the log file stays readable too.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    _setup_logging()
 
     if args.version:
         from . import __version__

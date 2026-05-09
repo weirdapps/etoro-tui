@@ -25,8 +25,7 @@ def test_position_overlay_defaults_none():
     )
     assert p.signal is None
     assert p.pi_pct is None
-    assert p.news_24h is None
-    assert p.news_anomaly is False
+    assert p.prev_close is None  # Δday column shows "—" when missing
 
 
 def test_account_summary_fields():
