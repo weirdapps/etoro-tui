@@ -7,6 +7,87 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Added
+
+- **Bloomberg-style table** — vertical `│` dividers between cells, magnitude-coded
+  triangles (▲▴▾▼) for Δday, 3-tier colour gradient (bold bright / normal / dim)
+  on Δday and Profit so magnitude pops at a glance, refined cyan/navy cursor.
+- **Parametric flex columns** — each column has a `min_inner` floor and a
+  `flex_weight`. `compute_widths(available_chars)` distributes leftover terminal
+  width proportionally. Verified at 140 / 180 / 220 / 240 cols. Re-flows on
+  terminal resize via `on_resize` handler.
+- **Δday column** — honest day-change computed from yesterday's close
+  (census `priceData`, FX-adjusted to USD), not lifetime return relabeled.
+  Sortable via the new `day_change_pct` sort key.
+- **Inline indices in header** — up to 3 indices (S&P / NDX / DOW) render in
+  the header bar with squashed names + colour-coded change. Replaces the
+  sidebar indices block.
+- **Right-anchored clock + status** — header is now two sections: portfolio
+  data flush left, clock + status dot anchored to the right edge via 1fr filler.
+- **`prev_close` field on Position** — populated from census `currentPrice`
+  × current FX. Enables the new Δday column and "Today's movers" detail.
+- **`_overlay_fields()` helper** — single source of truth for the overlay-kwargs
+  dict (signal, pi_pct, PE, upside, buy %, target). `_to_position` and
+  `_tick_overlays` both call it so the two paths can never drift.
+- **File-based logging** — all logs route to `~/.etoro-tui/etoro-tui.log`.
+  httpx pinned to WARNING. Stops HTTP request URLs from flashing on the
+  screen between Textual repaints.
+- **Defensive `.gitignore`** — adds `.env`, `.env.*`, `*.envfile`, `.etoro-tui/`,
+  `*.key`, `*.pem`, `credentials.*`, `secrets.*` so a stray credential file
+  can never be staged accidentally.
+- **`tests/test_app_logic.py`** — unit tests for `_overlay_fields`,
+  `_to_position` price-fallback paths, and `_day_change_pct` formatter.
+
+### Changed
+
+- **Single-panel layout** — table spans the full terminal width. The right
+  detail panel was removed (see below). Column count: 12.
+- **Header has no `│` dividers** — replaced with whitespace gaps for a cleaner
+  scan path. Status indicator is now a coloured dot only (no "live" / "slow"
+  text label).
+- **`_build_indices` applies FX** — same `conversionRateAsk` as `_to_position`,
+  so EUR-quoted instruments (`LYXGRE.DE`, `EuroStx50`) match the USD prices
+  shown in the portfolio table. Previously the same instrument could show two
+  different prices in the two panels.
+- **`_to_position` price selection** — replaced the lazy `or` chain with
+  explicit `None` / `0.0` checks. Walks live keys (`lastExecution` → `Bid` →
+  `bid`) accepting the first `> 0` value. All-missing → census fallback,
+  never crashes on `float(None)`.
+- **Column header alignment** — refactored cell rendering so the `│` divider
+  is always at column position 0 and the value is right-padded within the
+  remaining width. Previously `justify="right"` on the whole `"│ value"`
+  string caused the divider to drift between rows of different value widths.
+- **CHANGELOG / README** rewritten for the new layout and per-platform
+  credentials story.
+
+### Removed
+
+- **`widgets/detail_panel.py`** (~320 lines) — relied on data sources
+  (etorotrade signals + census PIs) that don't work for shared users without
+  the original repos cloned. Functionality replaced by:
+  - Indices → moved to header bar
+  - Per-position dossier → not replaced (the table itself shows the same
+    fundamentals as columns)
+  - Portfolio overview / Today's movers → removed
+  - Buy / Add / Hold / Trim / Sell action buckets → removed
+- **`ActionsSummary` dataclass** + `_build_actions()` function (no consumer left).
+- **`Enter` / `toggle_detail` key binding** (no panel to toggle).
+- **`PositionsTable.PositionSelected` consumer** in `app.py` (the message is
+  still emitted; no handler currently acts on it).
+- **`clients/news.py`** + `tests/test_clients_news.py` (~123 lines) —
+  `news_24h` / `news_anomaly` were never displayed after the detail panel was
+  removed. `NEWS_DB_PATH` and `POLL_NEWS_S` removed from `config.py`. News
+  fields removed from `Position`, `_OverlayKwargs`, `_overlay_fields`,
+  `_to_position`, `_aggregate_by_symbol`, `EtoroTuiApp.__init__`, and
+  `demo.py`. Test count: 60 → 54 (only news-specific tests removed).
+
+### Fixed
+
+- **"Today's movers" detail** previously showed biggest **lifetime** gainer/loser
+  using `pnl_pct`; now uses real day-change via `prev_close`. Falls back to
+  "(awaiting census prev_close)" when no positions have a baseline.
+- **Stale `styles.tcss` docstring** that claimed a 2-row header (it's 1 row).
+
 ## [0.2.0] — 2026-05-06
 
 First public release. Hardens the project for distribution on PyPI and GitHub.
