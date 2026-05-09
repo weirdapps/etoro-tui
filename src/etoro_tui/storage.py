@@ -37,11 +37,20 @@ CREATE INDEX IF NOT EXISTS idx_pos_symbol_ts
 
 
 def init_db(path: Path) -> sqlite3.Connection:
-    """Open (or create) the snapshot DB and ensure schema. Idempotent."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Open (or create) the snapshot DB and ensure schema. Idempotent.
+
+    Tightens the DB file to 0o600 after creation — the file contains
+    portfolio history (positions, equity, P&L) that should not be readable
+    by other local users. No-op on Windows.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     conn = sqlite3.connect(path)
     conn.executescript(_SCHEMA)
     conn.commit()
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     return conn
 
 

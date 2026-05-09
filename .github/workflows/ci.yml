@@ -27,10 +27,32 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
 
+  audit:
+    name: pip-audit (vulnerability scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit project dependencies for known CVEs
+        # `pip-audit .` audits the project at this path: it reads
+        # pyproject.toml, resolves all runtime + extras deps, scans them
+        # against PyVA/OSV. Doesn't try to look up etoro-tui itself on PyPI
+        # (which would fail since we haven't published yet).
+        # --strict: fail on any vulnerability with a known fix.
+        run: pip-audit . --strict --progress-spinner off
+
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    needs: lint
+    needs: [lint, audit]
     strategy:
       fail-fast: false
       matrix:

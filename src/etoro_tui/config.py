@@ -33,6 +33,34 @@ ENV_FILE = ETORO_TUI_HOME / ".env"
 SNAPSHOT_DB_PATH = ETORO_TUI_HOME / "snapshots.db"
 CACHE_DIR = ETORO_TUI_HOME / "cache"
 
+# Sensitive files in ETORO_TUI_HOME (.env, snapshots.db, log) should be
+# user-only readable. The cache contains only public data and stays default.
+_SENSITIVE_FILES: tuple[str, ...] = (".env", "snapshots.db", "etoro-tui.log")
+
+
+def ensure_home_secure() -> None:
+    """Create ~/.etoro-tui/ with mode 0o700 + tighten any pre-existing
+    sensitive files to 0o600. Called from app startup + setup wizard.
+
+    POSIX-only: chmod is a no-op on Windows. Errors are swallowed silently
+    because permission tightening is best-effort hardening, not a hard
+    requirement for app function.
+    """
+    try:
+        ETORO_TUI_HOME.mkdir(parents=True, exist_ok=True)
+        # Tighten dir even if it already existed at default 0o755.
+        ETORO_TUI_HOME.chmod(0o700)
+    except OSError:
+        return  # Windows or unusual filesystem — give up quietly.
+    for name in _SENSITIVE_FILES:
+        p = ETORO_TUI_HOME / name
+        if p.exists():
+            try:
+                p.chmod(0o600)
+            except OSError:
+                pass
+
+
 # Default overlay sources. The user can override paths via TOML; if a path
 # doesn't exist locally, the corresponding client falls back to the GitHub
 # raw URL (built into the clients themselves).
