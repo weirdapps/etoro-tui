@@ -7,9 +7,10 @@ Use:
     from etoro_tui.demo import build_demo_state
     state = build_demo_state()
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from .models import (
     AccountSummary,
@@ -20,9 +21,20 @@ from .models import (
 
 
 def _pos(
-    pid: int, sym: str, units: float, open_rate: float, current: float,
-    *, signal=None, pi_pct=None, pe_t=None, pe_f=None, upside=None, buy_pct=None,
-    lots: int = 1, day_chg_pct: float = 0.0,
+    pid: int,
+    sym: str,
+    units: float,
+    open_rate: float,
+    current: float,
+    *,
+    signal=None,
+    pi_pct=None,
+    pe_t=None,
+    pe_f=None,
+    upside=None,
+    buy_pct=None,
+    lots: int = 1,
+    day_chg_pct: float = 0.0,
 ) -> Position:
     value = units * current
     pnl = (current - open_rate) * units
@@ -31,38 +43,162 @@ def _pos(
     # render with realistic mixed greens/reds.
     prev_close = current / (1 + day_chg_pct / 100) if day_chg_pct != 0 else current
     return Position(
-        position_id=pid, symbol=sym, direction="Buy",
-        units=units, open_rate=open_rate, current_rate=current,
-        value=value, pnl=pnl, pnl_pct=pnl_pct,
-        open_ts=datetime(2025, 6, 1, tzinfo=timezone.utc),
-        signal=signal, pi_pct=pi_pct,
+        position_id=pid,
+        symbol=sym,
+        direction="Buy",
+        units=units,
+        open_rate=open_rate,
+        current_rate=current,
+        value=value,
+        pnl=pnl,
+        pnl_pct=pnl_pct,
+        open_ts=datetime(2025, 6, 1, tzinfo=UTC),
+        signal=signal,
+        pi_pct=pi_pct,
         position_count=lots,
-        pe_trailing=pe_t, pe_forward=pe_f,
-        upside_pct=upside, analyst_buy_pct=buy_pct,
-        target_price=None, prev_close=prev_close,
+        pe_trailing=pe_t,
+        pe_forward=pe_f,
+        upside_pct=upside,
+        analyst_buy_pct=buy_pct,
+        target_price=None,
+        prev_close=prev_close,
     )
 
 
 def build_demo_state() -> AppState:
     """8-position synthetic portfolio with realistic enough numbers."""
     positions = (
-        _pos(1, "AAPL",  150,   180.00, 195.40, signal="HOLD", pi_pct=22, pe_t=33.5, pe_f=29.0, upside=8.6,  buy_pct=53,  lots=3, day_chg_pct=0.42),
-        _pos(2, "NVDA",  100,    50.00, 145.20, signal="BUY",  pi_pct=35, pe_t=40.5, pe_f=17.7, upside=35.6, buy_pct=100, lots=5, day_chg_pct=2.81),
-        _pos(3, "MSFT",   80,   380.00, 410.50, signal="BUY",  pi_pct=44, pe_t=24.6, pe_f=21.4, upside=35.6, buy_pct=96,  lots=4, day_chg_pct=0.18),
-        _pos(4, "GOOG",   60,   140.00, 178.20, signal="HOLD", pi_pct=35, pe_t=29.0, pe_f=26.6, upside=3.9,  buy_pct=100, lots=2, day_chg_pct=-0.34),
-        _pos(5, "TSLA",   40,   220.00, 198.80, signal="SELL", pi_pct=18, pe_t=72.4, pe_f=64.1, upside=-12.3, buy_pct=30, lots=1, day_chg_pct=-3.12),
-        _pos(6, "AMD",    50,   135.00, 160.20, signal="BUY",  pi_pct=20, pe_t=131.4, pe_f=30.4, upside=22.0, buy_pct=78, lots=2, day_chg_pct=1.55),
-        _pos(7, "META",   25,   500.00, 580.10, signal="BUY",  pi_pct=35, pe_t=22.2, pe_f=16.9, upside=36.4, buy_pct=92,  lots=2, day_chg_pct=0.91),
-        _pos(8, "NKE",    80,    95.00,  82.50, signal="SELL", pi_pct=11, pe_t=28.3, pe_f=23.3, upside=-5.2,  buy_pct=48, lots=1, day_chg_pct=-1.07),
+        _pos(
+            1,
+            "AAPL",
+            150,
+            180.00,
+            195.40,
+            signal="HOLD",
+            pi_pct=22,
+            pe_t=33.5,
+            pe_f=29.0,
+            upside=8.6,
+            buy_pct=53,
+            lots=3,
+            day_chg_pct=0.42,
+        ),
+        _pos(
+            2,
+            "NVDA",
+            100,
+            50.00,
+            145.20,
+            signal="BUY",
+            pi_pct=35,
+            pe_t=40.5,
+            pe_f=17.7,
+            upside=35.6,
+            buy_pct=100,
+            lots=5,
+            day_chg_pct=2.81,
+        ),
+        _pos(
+            3,
+            "MSFT",
+            80,
+            380.00,
+            410.50,
+            signal="BUY",
+            pi_pct=44,
+            pe_t=24.6,
+            pe_f=21.4,
+            upside=35.6,
+            buy_pct=96,
+            lots=4,
+            day_chg_pct=0.18,
+        ),
+        _pos(
+            4,
+            "GOOG",
+            60,
+            140.00,
+            178.20,
+            signal="HOLD",
+            pi_pct=35,
+            pe_t=29.0,
+            pe_f=26.6,
+            upside=3.9,
+            buy_pct=100,
+            lots=2,
+            day_chg_pct=-0.34,
+        ),
+        _pos(
+            5,
+            "TSLA",
+            40,
+            220.00,
+            198.80,
+            signal="SELL",
+            pi_pct=18,
+            pe_t=72.4,
+            pe_f=64.1,
+            upside=-12.3,
+            buy_pct=30,
+            lots=1,
+            day_chg_pct=-3.12,
+        ),
+        _pos(
+            6,
+            "AMD",
+            50,
+            135.00,
+            160.20,
+            signal="BUY",
+            pi_pct=20,
+            pe_t=131.4,
+            pe_f=30.4,
+            upside=22.0,
+            buy_pct=78,
+            lots=2,
+            day_chg_pct=1.55,
+        ),
+        _pos(
+            7,
+            "META",
+            25,
+            500.00,
+            580.10,
+            signal="BUY",
+            pi_pct=35,
+            pe_t=22.2,
+            pe_f=16.9,
+            upside=36.4,
+            buy_pct=92,
+            lots=2,
+            day_chg_pct=0.91,
+        ),
+        _pos(
+            8,
+            "NKE",
+            80,
+            95.00,
+            82.50,
+            signal="SELL",
+            pi_pct=11,
+            pe_t=28.3,
+            pe_f=23.3,
+            upside=-5.2,
+            buy_pct=48,
+            lots=1,
+            day_chg_pct=-1.07,
+        ),
     )
     invested = sum(p.value for p in positions)
     cash = 25_000.00
     equity = invested + cash
     unrealized = sum(p.pnl for p in positions)
     account = AccountSummary(
-        equity=equity, cash=cash,
-        unrealized=unrealized, realized=0.0,
-        fetched_at=datetime.now(timezone.utc),
+        equity=equity,
+        cash=cash,
+        unrealized=unrealized,
+        realized=0.0,
+        fetched_at=datetime.now(UTC),
     )
     return AppState(
         account=account,
@@ -75,11 +211,9 @@ def build_demo_state() -> AppState:
 
 def build_demo_indices() -> tuple[IndexSummary, ...]:
     return (
-        IndexSummary(name="S&P 500",   last=5_432.10,  change_pct=0.34),
-        IndexSummary(name="NASDAQ",    last=17_234.52, change_pct=0.45),
-        IndexSummary(name="Dow 30",    last=40_123.45, change_pct=-0.21),
-        IndexSummary(name="EuroStx50", last=5_017.83,  change_pct=0.18),
-        IndexSummary(name="Greek ETF", last=2.44,      change_pct=1.58),
+        IndexSummary(name="S&P 500", last=5_432.10, change_pct=0.34),
+        IndexSummary(name="NASDAQ", last=17_234.52, change_pct=0.45),
+        IndexSummary(name="Dow 30", last=40_123.45, change_pct=-0.21),
+        IndexSummary(name="EuroStx50", last=5_017.83, change_pct=0.18),
+        IndexSummary(name="Greek ETF", last=2.44, change_pct=1.58),
     )
-
-

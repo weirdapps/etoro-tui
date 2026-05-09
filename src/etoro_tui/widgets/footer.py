@@ -1,7 +1,8 @@
 """Footer: key legend + sort indicator + last-fetch + error banner."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from rich.text import Text
 from textual.app import ComposeResult
@@ -55,7 +56,7 @@ class Footer(Vertical):
         if value is None:
             widget.update(Text("waiting…", style="dim"))
             return
-        delta = int((datetime.now(timezone.utc) - value).total_seconds())
+        delta = int((datetime.now(UTC) - value).total_seconds())
         widget.update(Text(f"updated {delta}s ago", style="dim"))
 
     def watch_sort_label(self, value: str) -> None:

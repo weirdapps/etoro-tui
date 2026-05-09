@@ -10,6 +10,7 @@ There is intentionally no `fetch_account` method — eToro's portfolio response
 already contains `credit` (cash). Equity is computed locally from positions
 + credit. See docs/etoro-api-actual.md for the full API discovery.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -85,9 +86,7 @@ class EtoroClient:
                 continue
             resp.raise_for_status()
             return resp.json()
-        raise EtoroTransientError(
-            f"{path}: exhausted {self._max_retries} retries: {last_error}"
-        )
+        raise EtoroTransientError(f"{path}: exhausted {self._max_retries} retries: {last_error}")
 
     async def _sleep(self, attempt: int) -> None:
         delay = self._backoff[min(attempt, len(self._backoff) - 1)]
@@ -131,7 +130,7 @@ class EtoroClient:
             return {}
         out: dict[int, dict[str, Any]] = {}
         for i in range(0, len(instrument_ids), batch_size):
-            batch = instrument_ids[i:i + batch_size]
+            batch = instrument_ids[i : i + batch_size]
             path = (
                 "/api/v1/market-data/instruments/rates"
                 f"?instrumentIds={','.join(str(x) for x in batch)}"

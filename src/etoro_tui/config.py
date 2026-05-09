@@ -9,6 +9,7 @@ Cross-platform: env-only credentials, optional file-based supplement
 (`~/.etoro-tui/.env` written by `etoro-tui setup`). No macOS Keychain
 dependency — keeps the binary portable across Linux, macOS, Windows.
 """
+
 from __future__ import annotations
 
 import os
@@ -42,21 +43,22 @@ SIGNALS_GITHUB_URL = (
 
 CENSUS_GLOB_DIR = Path.home() / "SourceCode" / "etoro_census" / "archive" / "data"
 CENSUS_GLOB_PATTERN = "etoro-data-*.json"
-CENSUS_GITHUB_REPO = "weirdapps/etoro_census"      # <owner>/<repo>
+CENSUS_GITHUB_REPO = "weirdapps/etoro_census"  # <owner>/<repo>
 CENSUS_GITHUB_BRANCH = "data-archive"
-CENSUS_GITHUB_PATH = "data"                         # path within the branch
+CENSUS_GITHUB_PATH = "data"  # path within the branch
 
 # Default indices for the side panel. Override via TOML [indices].list.
 DEFAULT_INDICES: tuple[tuple[str, str], ...] = (
-    ("S&P 500",   "SPX500"),
-    ("NASDAQ",    "NSDQ100"),
-    ("Dow 30",    "DJ30"),
+    ("S&P 500", "SPX500"),
+    ("NASDAQ", "NSDQ100"),
+    ("Dow 30", "DJ30"),
     ("EuroStx50", "EUSTX50"),
     ("Greek ETF", "LYXGRE.DE"),
 )
 
 
 # ---- TOML loading ----
+
 
 def _load_toml() -> dict[str, Any]:
     """Best-effort TOML read; returns {} on missing/malformed file."""
@@ -103,9 +105,9 @@ def _path_override(*keys: str, default: Path) -> Path:
 
 
 # Apply TOML path overrides (after defaults are defined)
-SIGNALS_CSV     = _path_override("paths", "signals_csv",     default=SIGNALS_CSV)
-CENSUS_GLOB_DIR = _path_override("paths", "census_dir",      default=CENSUS_GLOB_DIR)
-SNAPSHOT_DB_PATH = _path_override("paths", "snapshot_db",    default=SNAPSHOT_DB_PATH)
+SIGNALS_CSV = _path_override("paths", "signals_csv", default=SIGNALS_CSV)
+CENSUS_GLOB_DIR = _path_override("paths", "census_dir", default=CENSUS_GLOB_DIR)
+SNAPSHOT_DB_PATH = _path_override("paths", "snapshot_db", default=SNAPSHOT_DB_PATH)
 
 
 # ---- credentials ----
@@ -150,6 +152,7 @@ def keyring_available() -> bool:
     """True if the optional `keyring` package is importable."""
     try:
         import keyring  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -172,20 +175,21 @@ def _keyring_lookup() -> tuple[str | None, str | None]:
 def keyring_save(public_key: str, user_key: str) -> None:
     """Persist both keys to the system keyring. Caller checks keyring_available() first."""
     import keyring  # let ImportError propagate so the wizard can catch it
+
     keyring.set_password(KEYRING_SVC_PUBLIC, KEYRING_ACCOUNT, public_key)
-    keyring.set_password(KEYRING_SVC_USER,   KEYRING_ACCOUNT, user_key)
+    keyring.set_password(KEYRING_SVC_USER, KEYRING_ACCOUNT, user_key)
 
 
 def get_credentials() -> tuple[str, str]:
     """Return (public_key, user_key). Resolution: env → .env file → keyring."""
     pk = os.environ.get("ETORO_PUBLIC_KEY") or _ENVFILE.get("ETORO_PUBLIC_KEY")
-    uk = os.environ.get("ETORO_USER_KEY")   or _ENVFILE.get("ETORO_USER_KEY")
+    uk = os.environ.get("ETORO_USER_KEY") or _ENVFILE.get("ETORO_USER_KEY")
     if not (pk and uk):
         kr_pk, kr_uk = _keyring_lookup()
         pk = pk or kr_pk
         uk = uk or kr_uk
     if not pk or not uk:
-        suffix = (" / system keyring" if keyring_available() else "")
+        suffix = " / system keyring" if keyring_available() else ""
         raise AuthMissingError(
             "ETORO_PUBLIC_KEY and ETORO_USER_KEY not found in env"
             f" / ~/.etoro-tui/.env{suffix}. Run `etoro-tui setup` to configure."

@@ -1,5 +1,5 @@
 # tests/test_app_smoke.py
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -9,19 +9,32 @@ from etoro_tui.models import AccountSummary, AppState, Position
 
 def _make_state() -> AppState:
     pos = Position(
-        position_id=1, symbol="AAPL", direction="Buy", units=10.0,
-        open_rate=150.0, current_rate=160.0, value=1600.0,
-        pnl=100.0, pnl_pct=6.67,
-        open_ts=datetime(2026, 1, 1, tzinfo=timezone.utc),
-        signal="BUY", pi_pct=42.0,
+        position_id=1,
+        symbol="AAPL",
+        direction="Buy",
+        units=10.0,
+        open_rate=150.0,
+        current_rate=160.0,
+        value=1600.0,
+        pnl=100.0,
+        pnl_pct=6.67,
+        open_ts=datetime(2026, 1, 1, tzinfo=UTC),
+        signal="BUY",
+        pi_pct=42.0,
     )
     acct = AccountSummary(
-        equity=50000.0, cash=10000.0, unrealized=500.0, realized=1500.0,
-        fetched_at=datetime.now(timezone.utc),
+        equity=50000.0,
+        cash=10000.0,
+        unrealized=500.0,
+        realized=1500.0,
+        fetched_at=datetime.now(UTC),
     )
     return AppState(
-        account=acct, positions=(pos,), last_error=None,
-        status="live", equity_sparkline=(50000.0, 50100.0, 50000.0),
+        account=acct,
+        positions=(pos,),
+        last_error=None,
+        status="live",
+        equity_sparkline=(50000.0, 50100.0, 50000.0),
     )
 
 

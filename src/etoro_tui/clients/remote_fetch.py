@@ -8,6 +8,7 @@ re-use the cache for up to `max_age_seconds`.
 No third-party deps — uses urllib.request from the stdlib so users don't
 have to install anything extra to get the public datasets.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,8 +33,9 @@ def _ensure_cache_dir() -> Path:
 
 def _http_get(url: str, timeout: float = 10.0) -> bytes | None:
     """GET bytes or None on any error. Sets a UA header (GitHub returns 403 without one)."""
-    req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT,
-                                               "Accept": "application/vnd.github.v3+json"})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": _USER_AGENT, "Accept": "application/vnd.github.v3+json"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.read()
@@ -52,10 +54,7 @@ def fetch_to_cache(
     have no usable cached copy.
     """
     cache_path = _ensure_cache_dir() / cache_name
-    fresh = (
-        cache_path.exists()
-        and (time.time() - cache_path.stat().st_mtime) < max_age_seconds
-    )
+    fresh = cache_path.exists() and (time.time() - cache_path.stat().st_mtime) < max_age_seconds
     if fresh:
         return cache_path
     body = _http_get(url)
@@ -84,12 +83,15 @@ def fetch_newest_census_file() -> Path | None:
         items: list[dict[str, Any]] = json.loads(listing)
     except (ValueError, TypeError):
         return None
-    json_files = [it for it in items
-                  if isinstance(it, dict)
-                  and it.get("type") == "file"
-                  and isinstance(it.get("name"), str)
-                  and it["name"].startswith("etoro-data-")
-                  and it["name"].endswith(".json")]
+    json_files = [
+        it
+        for it in items
+        if isinstance(it, dict)
+        and it.get("type") == "file"
+        and isinstance(it.get("name"), str)
+        and it["name"].startswith("etoro-data-")
+        and it["name"].endswith(".json")
+    ]
     if not json_files:
         return None
     # Filenames embed YYYY-MM-DD-HH-MM, sorted lex == sorted chronologically.

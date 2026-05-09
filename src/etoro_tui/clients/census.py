@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 
 class InstrumentInfo(NamedTuple):
     """One per eToro instrument id, sourced from census."""
+
     symbol: str
     current_price: float
 

@@ -7,6 +7,7 @@ clock + status dot anchored to the RIGHT edge. Sections separated by
 generous whitespace instead of │ characters — cleaner for scanning.
 Indices are FX-converted to USD upstream so they match what the table shows.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -19,7 +20,6 @@ from textual.widgets import Static
 
 from ..models import AccountSummary, IndexSummary, Status
 
-
 # Two-space gap separates sections — replaces the prior │ dividers for a
 # cleaner, less-busy look.
 _GAP = Text("   ", style="")
@@ -30,8 +30,11 @@ def _index_text(ix: IndexSummary, max_name: int = 4) -> Text:
     # Squash long names ("S&P 500" → "S&P", "NASDAQ" → "NDX", "Dow 30" → "DOW",
     # "EuroStx50" → "STX", "Greek ETF" → "GRE"). Fits more indices in the bar.
     short = {
-        "S&P 500": "S&P", "NASDAQ": "NDX", "Dow 30": "DOW",
-        "EuroStx50": "STX", "Greek ETF": "GRE",
+        "S&P 500": "S&P",
+        "NASDAQ": "NDX",
+        "Dow 30": "DOW",
+        "EuroStx50": "STX",
+        "Greek ETF": "GRE",
     }.get(ix.name, ix.name[:max_name])
     arrow = "▲" if ix.change_pct >= 0 else "▼"
     sign = "+" if ix.change_pct >= 0 else ""
@@ -56,7 +59,7 @@ def _delta_compact(pct: float) -> Text:
 
 
 def _cash(v: float) -> Text:
-    return Text.assemble(("Cash ", "dim"), (f"${v/1000:,.0f}K", ""))
+    return Text.assemble(("Cash ", "dim"), (f"${v / 1000:,.0f}K", ""))
 
 
 def _open_pnl(v: float) -> Text:
@@ -64,15 +67,15 @@ def _open_pnl(v: float) -> Text:
     sign = "+" if v >= 0 else "−"
     return Text.assemble(
         ("P&L ", "dim"),
-        (f"{sign}${abs(v)/1000:,.0f}K", color),
+        (f"{sign}${abs(v) / 1000:,.0f}K", color),
     )
 
 
 # Status: just the dot, colour-coded. Hover/help reveals the meaning.
 _STATUS_DOT: dict[Status, Text] = {
-    "live":     Text("●", style="bold green"),
+    "live": Text("●", style="bold green"),
     "degraded": Text("●", style="bold yellow"),
-    "down":     Text("●", style="bold red"),
+    "down": Text("●", style="bold red"),
 }
 
 
@@ -154,10 +157,15 @@ class Header(Horizontal):
         spark = _mini_sparkline(self.sparkline_values, width=8)
 
         parts: list[Text] = [
-            equity, Text(" "), delta,
-            _GAP, cash,
-            _GAP, pnl,
-            _GAP, spark,
+            equity,
+            Text(" "),
+            delta,
+            _GAP,
+            cash,
+            _GAP,
+            pnl,
+            _GAP,
+            spark,
         ]
         # Up to 3 indices in the header — keeps the bar from overflowing on
         # narrower terminals (cap is conservative; a 5th would push clock off

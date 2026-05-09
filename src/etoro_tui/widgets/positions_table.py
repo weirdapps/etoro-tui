@@ -26,6 +26,7 @@ aggregated $ matters more than how many lots accumulated it.
 to USD with the live OCR; if a symbol is not in the census file (rare for
 US stocks, common for some illiquid instruments) Δday shows "—".
 """
+
 from __future__ import annotations
 
 from typing import Literal
@@ -39,12 +40,25 @@ from textual.widgets import DataTable, Input
 
 from ..models import Position
 
-
-SortKey = Literal["value", "pnl", "day_change_pct", "upside_pct", "analyst_buy_pct",
-                  "pe_forward", "symbol", "signal"]
+SortKey = Literal[
+    "value",
+    "pnl",
+    "day_change_pct",
+    "upside_pct",
+    "analyst_buy_pct",
+    "pe_forward",
+    "symbol",
+    "signal",
+]
 _SORT_CYCLE: list[SortKey] = [
-    "value", "pnl", "day_change_pct", "upside_pct", "analyst_buy_pct",
-    "pe_forward", "signal", "symbol",
+    "value",
+    "pnl",
+    "day_change_pct",
+    "upside_pct",
+    "analyst_buy_pct",
+    "pe_forward",
+    "signal",
+    "symbol",
 ]
 SORT_LABELS: dict[SortKey, str] = {
     "value": "Value ↓",
@@ -52,15 +66,15 @@ SORT_LABELS: dict[SortKey, str] = {
     "day_change_pct": "Δday ↓",
     "upside_pct": "Upside ↓",
     "analyst_buy_pct": "Buy % ↓",
-    "pe_forward": "PEF ↑",   # cheaper first
+    "pe_forward": "PEF ↑",  # cheaper first
     "signal": "Signal",
     "symbol": "SYMBOL",
 }
 
 _SIG_STYLE = {
-    "BUY":  ("bold green", "BUY"),
-    "SELL": ("bold red",   "SELL"),
-    "HOLD": ("dim",        "HOLD"),
+    "BUY": ("bold green", "BUY"),
+    "SELL": ("bold red", "SELL"),
+    "HOLD": ("dim", "HOLD"),
 }
 
 # Column specifications. Each tuple = (label, key, min_inner, flex_weight, align).
@@ -74,18 +88,18 @@ _SIG_STYLE = {
 #     weights; tight numeric columns (PET, PIs) get lower weights.
 #   - align: how the value is positioned within inner_width.
 _COL_SPECS: tuple[tuple[str, str, int, float, str], ...] = (
-    ("SYMBOL",    "SYMBOL",   9, 1.0, "left"),
-    ("│ Price",   "Price",    8, 1.2, "right"),
-    ("│ Δday",    "Δday",     8, 0.8, "right"),
-    ("│ Value",   "Value",    9, 1.2, "right"),
-    ("│ Alloc",   "Alloc",    6, 0.4, "right"),
-    ("│ Profit",  "Profit",   9, 1.5, "right"),
-    ("│ PET",     "PET",      5, 0.3, "right"),
-    ("│ PEF",     "PEF",      5, 0.3, "right"),
-    ("│ Upside",  "Upside",   7, 0.8, "right"),
-    ("│ Buy %",   "Buy %",    6, 0.4, "right"),
-    ("│ PIs",     "PIs",      5, 0.3, "right"),
-    ("│ Signal",  "Signal",   6, 0.4, "center"),
+    ("SYMBOL", "SYMBOL", 9, 1.0, "left"),
+    ("│ Price", "Price", 8, 1.2, "right"),
+    ("│ Δday", "Δday", 8, 0.8, "right"),
+    ("│ Value", "Value", 9, 1.2, "right"),
+    ("│ Alloc", "Alloc", 6, 0.4, "right"),
+    ("│ Profit", "Profit", 9, 1.5, "right"),
+    ("│ PET", "PET", 5, 0.3, "right"),
+    ("│ PEF", "PEF", 5, 0.3, "right"),
+    ("│ Upside", "Upside", 7, 0.8, "right"),
+    ("│ Buy %", "Buy %", 6, 0.4, "right"),
+    ("│ PIs", "PIs", 5, 0.3, "right"),
+    ("│ Signal", "Signal", 6, 0.4, "center"),
 )
 
 # Mutable inner widths — compute_widths() updates these on mount/resize, and
@@ -123,8 +137,7 @@ def compute_widths(available_chars: int) -> None:
         _INNER[key] = minw + round(extra * flex / flex_sum)
 
 
-def _grad_color(magnitude: float, thresholds: tuple[float, float],
-                positive: bool) -> str:
+def _grad_color(magnitude: float, thresholds: tuple[float, float], positive: bool) -> str:
     """Bloomberg 3-tier colour: bright/normal/dim by magnitude.
 
     `thresholds` = (small, large). Below small → dim, above large → bold.
@@ -137,6 +150,7 @@ def _grad_color(magnitude: float, thresholds: tuple[float, float],
     if a >= thresholds[0]:
         return base
     return f"dim {base}"
+
 
 # (label, width). Width = None lets DataTable auto-size; explicit widths
 # include the inline "│ " separator (2 chars) injected by each formatter.
@@ -375,8 +389,11 @@ class PositionsTable(Vertical):
             rows.sort(key=lambda p: (order.get(p.signal, 4), p.symbol))
         elif key == "pe_forward":
             # Cheap first. Treat None as huge so missing data sinks to bottom.
-            rows.sort(key=lambda p: p.pe_forward
-                      if p.pe_forward is not None and p.pe_forward > 0 else float("inf"))
+            rows.sort(
+                key=lambda p: (
+                    p.pe_forward if p.pe_forward is not None and p.pe_forward > 0 else float("inf")
+                )
+            )
         elif key == "day_change_pct":
             # Computed on the fly from current_rate vs prev_close. Missing
             # prev_close → bottom. Biggest gain first.
@@ -384,12 +401,14 @@ class PositionsTable(Vertical):
                 if p.prev_close is None or p.prev_close <= 0:
                     return float("-inf")
                 return (p.current_rate - p.prev_close) / p.prev_close * 100
+
             rows.sort(key=_dc, reverse=True)
         elif key in ("upside_pct", "analyst_buy_pct"):
             # None → bottom. Higher first.
-            rows.sort(key=lambda p: getattr(p, key)
-                      if getattr(p, key) is not None else float("-inf"),
-                      reverse=True)
+            rows.sort(
+                key=lambda p: getattr(p, key) if getattr(p, key) is not None else float("-inf"),
+                reverse=True,
+            )
         else:
             rows.sort(key=lambda p: getattr(p, key), reverse=True)
         return rows
@@ -402,16 +421,16 @@ class PositionsTable(Vertical):
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _money(p.current_rate),                       # Price (decimals)
+                _money(p.current_rate),  # Price (decimals)
                 _day_change_pct(p.current_rate, p.prev_close),  # Δday
-                _money_int(p.value),                          # Value (integer)
-                _eq_pct(pct_eq),                              # Allocation
-                _pnl(p.pnl),                                  # Profit (integer)
-                _pe(p.pe_trailing, "PET"),                    # PET
-                _pe(p.pe_forward, "PEF"),                     # PEF
-                _upside(p.upside_pct),                        # Upside
-                _buy_pct(p.analyst_buy_pct),                  # Buy %
-                _pi(p.pi_pct),                                # PIs
-                _signal(p.signal),                            # Signal
+                _money_int(p.value),  # Value (integer)
+                _eq_pct(pct_eq),  # Allocation
+                _pnl(p.pnl),  # Profit (integer)
+                _pe(p.pe_trailing, "PET"),  # PET
+                _pe(p.pe_forward, "PEF"),  # PEF
+                _upside(p.upside_pct),  # Upside
+                _buy_pct(p.analyst_buy_pct),  # Buy %
+                _pi(p.pi_pct),  # PIs
+                _signal(p.signal),  # Signal
                 key=str(p.position_id),
             )

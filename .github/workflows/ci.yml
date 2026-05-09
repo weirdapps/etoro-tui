@@ -7,9 +7,30 @@ on:
     branches: [master, main]
 
 jobs:
+  lint:
+    name: ruff (lint + format check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install ruff
+        run: pip install "ruff>=0.7"
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format --check
+        run: ruff format --check .
+
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    needs: lint
     strategy:
       fail-fast: false
       matrix:
@@ -53,12 +74,11 @@ jobs:
         run: |
           python - <<'PY'
           import asyncio
-          from etoro_tui.demo import build_demo_state, build_demo_indices, build_demo_actions
+          from etoro_tui.demo import build_demo_state, build_demo_indices
           from etoro_tui.app import EtoroTuiApp
           async def go():
               app = EtoroTuiApp(initial_state=build_demo_state(), disable_polling=True)
               app._demo_indices = build_demo_indices()
-              app._demo_actions = build_demo_actions(app._state)
               async with app.run_test() as pilot:
                   await pilot.pause()
           asyncio.run(go())

@@ -5,6 +5,7 @@ Covers:
   - _to_position price fallback: live → bid → census, never crashes on None
   - _day_change_pct formatter: percent display, sign, missing-prev fallback
 """
+
 import pytest
 
 from etoro_tui.app import _overlay_fields, _to_position
@@ -12,15 +13,19 @@ from etoro_tui.clients.census import InstrumentInfo
 from etoro_tui.clients.signals import Fundamentals
 from etoro_tui.widgets.positions_table import _day_change_pct
 
-
 # ---------------------------------------------------------------------------
 # _overlay_fields
 # ---------------------------------------------------------------------------
 
+
 def test_overlay_fields_with_full_data() -> None:
     fund = Fundamentals(
-        signal="BUY", pe_trailing=33.5, pe_forward=29.0,
-        upside_pct=8.6, analyst_buy_pct=53.0, target_price=210.0,
+        signal="BUY",
+        pe_trailing=33.5,
+        pe_forward=29.0,
+        upside_pct=8.6,
+        analyst_buy_pct=53.0,
+        target_price=210.0,
     )
     out = _overlay_fields("AAPL", fund, {"AAPL": 22.0})
     assert out["signal"] == "BUY"
@@ -53,8 +58,10 @@ def test_overlay_fields_pi_lookup() -> None:
 # _to_position price-fallback paths
 # ---------------------------------------------------------------------------
 
-def _raw(inst_id: int = 1001, units: float = 10, open_rate: float = 150.0,
-         is_buy: bool = True) -> dict:
+
+def _raw(
+    inst_id: int = 1001, units: float = 10, open_rate: float = 150.0, is_buy: bool = True
+) -> dict:
     return {
         "positionID": 42,
         "instrumentID": inst_id,
@@ -95,8 +102,7 @@ def test_to_position_falls_back_to_census_when_lastexec_zero(
     instruments: dict,
 ) -> None:
     """0.0 means broken/glitched price; should NOT be used."""
-    rates = {1001: {"lastExecution": 0.0, "Bid": 0.0, "bid": 0.0,
-                    "conversionRateAsk": 1.0}}
+    rates = {1001: {"lastExecution": 0.0, "Bid": 0.0, "bid": 0.0, "conversionRateAsk": 1.0}}
     p = _to_position(_raw(), instruments, {}, {}, rates)
     assert p is not None
     # All live keys are 0 → falls back to census (200.0 × open_ocr 1.0)
@@ -125,6 +131,7 @@ def test_to_position_falls_back_when_no_rates_at_all(
 # ---------------------------------------------------------------------------
 # _day_change_pct formatter
 # ---------------------------------------------------------------------------
+
 
 def _text_styles(t) -> str:
     """Concatenate every style applied in the Text — top-level + each span."""

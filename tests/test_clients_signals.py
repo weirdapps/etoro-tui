@@ -27,6 +27,7 @@ def test_mtime_cache_no_reread(tmp_signals_csv: Path, monkeypatch):
     # Reset mtime to original to simulate "no change"
     stat = (tmp_signals_csv.stat().st_atime, r._cache_mtime)
     import os
+
     os.utime(tmp_signals_csv, stat)
     out = r.read()
     # Cached, so XXX should NOT appear

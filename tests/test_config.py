@@ -30,8 +30,9 @@ def test_credentials_missing_raises(monkeypatch):
 def test_credentials_from_envfile(monkeypatch):
     monkeypatch.delenv("ETORO_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("ETORO_USER_KEY", raising=False)
-    monkeypatch.setattr(config, "_ENVFILE",
-                        {"ETORO_PUBLIC_KEY": "pk_file", "ETORO_USER_KEY": "uk_file"})
+    monkeypatch.setattr(
+        config, "_ENVFILE", {"ETORO_PUBLIC_KEY": "pk_file", "ETORO_USER_KEY": "uk_file"}
+    )
     pk, uk = config.get_credentials()
     assert (pk, uk) == ("pk_file", "uk_file")
     assert config.get_credentials_source() == "envfile"
@@ -52,8 +53,9 @@ def test_credentials_resolution_priority(monkeypatch):
     """env wins over envfile, envfile wins over keyring."""
     monkeypatch.setenv("ETORO_PUBLIC_KEY", "pk_env")
     monkeypatch.setenv("ETORO_USER_KEY", "uk_env")
-    monkeypatch.setattr(config, "_ENVFILE",
-                        {"ETORO_PUBLIC_KEY": "pk_file", "ETORO_USER_KEY": "uk_file"})
+    monkeypatch.setattr(
+        config, "_ENVFILE", {"ETORO_PUBLIC_KEY": "pk_file", "ETORO_USER_KEY": "uk_file"}
+    )
     monkeypatch.setattr(config, "_keyring_lookup", lambda: ("pk_kr", "uk_kr"))
     pk, uk = config.get_credentials()
     assert (pk, uk) == ("pk_env", "uk_env")
@@ -63,6 +65,7 @@ def test_credentials_resolution_priority(monkeypatch):
 def test_keyring_lookup_no_module(monkeypatch):
     """When the optional `keyring` package isn't importable, lookup returns Nones."""
     import sys
+
     # Force ImportError by removing keyring from sys.modules and blocking re-import.
     monkeypatch.setitem(sys.modules, "keyring", None)
     pk, uk = config._keyring_lookup()
