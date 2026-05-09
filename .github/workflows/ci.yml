@@ -38,18 +38,16 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install pip-audit + project deps (non-editable)
-        # pip-audit can't audit editable installs, so install the project
-        # normally (built wheel) — that exposes the runtime deps for scanning.
-        run: |
-          pip install pip-audit
-          pip install ".[dev,keyring]"
+      - name: Install pip-audit
+        run: pip install pip-audit
 
-      - name: Audit dependencies for known CVEs
+      - name: Audit project dependencies for known CVEs
+        # `pip-audit .` audits the project at this path: it reads
+        # pyproject.toml, resolves all runtime + extras deps, scans them
+        # against PyVA/OSV. Doesn't try to look up etoro-tui itself on PyPI
+        # (which would fail since we haven't published yet).
         # --strict: fail on any vulnerability with a known fix.
-        # --skip-editable: ignore any editable distros (none here, defensive).
-        # --ignore-vuln: ours none yet; placeholder for future allowlist.
-        run: pip-audit --strict --skip-editable --progress-spinner off
+        run: pip-audit . --strict --progress-spinner off
 
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
