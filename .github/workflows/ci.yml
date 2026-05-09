@@ -27,10 +27,34 @@ jobs:
       - name: ruff format --check
         run: ruff format --check .
 
+  audit:
+    name: pip-audit (vulnerability scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install pip-audit + project deps (non-editable)
+        # pip-audit can't audit editable installs, so install the project
+        # normally (built wheel) — that exposes the runtime deps for scanning.
+        run: |
+          pip install pip-audit
+          pip install ".[dev,keyring]"
+
+      - name: Audit dependencies for known CVEs
+        # --strict: fail on any vulnerability with a known fix.
+        # --skip-editable: ignore any editable distros (none here, defensive).
+        # --ignore-vuln: ours none yet; placeholder for future allowlist.
+        run: pip-audit --strict --skip-editable --progress-spinner off
+
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    needs: lint
+    needs: [lint, audit]
     strategy:
       fail-fast: false
       matrix:

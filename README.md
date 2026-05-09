@@ -191,6 +191,33 @@ Strict layering: `clients/` does I/O only, `widgets/` does rendering only, `app.
 
 Each column has a **minimum inner width** (hard floor) and a **flex weight** (proportion of leftover terminal width). On mount and on terminal resize, `compute_widths(available)` distributes the spare space proportionally so the table fills your screen — verified working at 140, 180, 220, and 240 cols. Profit / Value / Price get higher weights because their numbers benefit from breathing room; PET / PIs / Buy % get lower weights because their values are 4–5 chars and look weird with lots of trailing space.
 
+## Security & Scope
+
+**Personal portfolio dashboard. Single-user, runs locally on your machine.**
+
+The eToro Public API endpoints used here are **read-only** — `GET /portfolio` and `GET /market-data/instruments/rates`. The app **never** sends trade orders, never deposits, never withdraws. A leaked API key grants visibility into your portfolio, equity, and P&L history — but not the ability to trade on your behalf. When you generate the key, set permission to **Read** (Write is unnecessary).
+
+What's hardened:
+
+- Sensitive files in `~/.etoro-tui/` (`snapshots.db`, `.env`, `etoro-tui.log`) are written with mode `0o600`; the directory is `0o700`. POSIX-only — Windows users should rely on user-account isolation or the system keyring instead of the `.env` file
+- `.env` writes use `os.open(O_CREAT|O_EXCL, mode=0o600)` to avoid TOCTOU
+- HTTPS hardcoded; no plaintext fallback
+- All SQL queries parameterized
+- httpx logs pinned to WARNING (no request URLs / no headers in the log file)
+- File logging only — never to terminal — with rotation (4 MB cap)
+- CI runs `ruff` + `pip-audit` on every push and PR
+- Dependabot enabled for `pip` + GitHub Actions
+
+What's **not** done:
+
+- No third-party security audit
+- No penetration testing
+- No certificate pinning
+- Single maintainer (bus factor 1)
+- No SLSA provenance or signed releases on PyPI
+
+If your threat model requires any of these, **do not run etoro-tui in that environment.** Vulnerability reports: see [`SECURITY.md`](SECURITY.md).
+
 ## Disclaimer
 
 **Unofficial open-source tool. Not affiliated with eToro.**

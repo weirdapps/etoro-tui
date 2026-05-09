@@ -50,10 +50,20 @@ def _setup_logging() -> None:
     request lines, our own INFO logs) flashes briefly between Textual frames
     and looks like a glitch. Sending logs to a file keeps them available for
     debugging without painting the user's display.
+
+    Uses RotatingFileHandler so the log can't grow unbounded — keeps the
+    most recent 4 MB of history (1 MB × 4 files) and rotates older logs out.
     """
-    config.ETORO_TUI_HOME.mkdir(parents=True, exist_ok=True)
+    from logging.handlers import RotatingFileHandler
+
+    config.ensure_home_secure()  # 0o700 dir + 0o600 sensitive files
     log_path = config.ETORO_TUI_HOME / "etoro-tui.log"
-    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=1_000_000,  # 1 MB per file
+        backupCount=3,  # keep 3 rotated files (.1 / .2 / .3) → ~4 MB total
+        encoding="utf-8",
+    )
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -65,6 +75,12 @@ def _setup_logging() -> None:
     # httpx is the chattiest at INFO (one line per request, ~5s tick) — pin
     # it to WARNING so the log file stays readable too.
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # Tighten the new log file to 0o600 (RotatingFileHandler creates with
+    # default umask). No-op on Windows.
+    try:
+        log_path.chmod(0o600)
+    except OSError:
+        pass
 
 
 def main() -> int:
