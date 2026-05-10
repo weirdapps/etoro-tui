@@ -7,17 +7,35 @@
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![pypi](https://img.shields.io/pypi/v/etoro-tui.svg)](https://pypi.org/project/etoro-tui/)
 
-```text
-$100,000.00 ▲+0.50%   Cash $20K   P&L +$5K   ▆▅▅▆▆▆▇▇   S&P 5,432 ▲+0.34%   NDX 17,234 ▲+0.45%   DOW 40,123 ▼-0.21%        14:23 EEST  ●
- SYMBOL    │ Price    │ Δday      │ Value    │ Alloc  │ Profit    │ PET   │ PEF   │ Upside  │ Buy %  │ PIs   │ Signal
- EXAMPLE1  │  100.00  │ ▴+0.50%   │  20,000  │ 20.0%  │   +2,000  │ 25.0  │ 22.0  │ +10.0%  │ 100%   │ 50%   │ BUY
- EXAMPLE2  │  200.00  │ ▼-0.20%   │  15,000  │ 15.0%  │   +1,500  │ 30.0  │ 27.0  │  +5.0%  │  90%   │ 40%   │ HOLD
- EXAMPLE3  │  300.00  │ ▼-1.00%   │  10,000  │ 10.0%  │     -500  │ 35.0  │ 30.0  │ +15.0%  │  80%   │ 30%   │ HOLD
- EXAMPLE4  │  400.00  │ ▲+1.00%   │   5,000  │  5.0%  │   +1,000  │ 20.0  │ 18.0  │ +20.0%  │ 100%   │ 45%   │ BUY
- EXAMPLE5  │  500.00  │ ▼-2.00%   │   2,500  │  2.5%  │     -250  │ 50.0  │ 45.0  │ -10.0%  │  20%   │ 15%   │ SELL
- …
-[↑↓] select  [s] sort  [/] filter  [r] refresh  [?] help  [q] quit                                  by Value ↓  prices ● live  updated 4s ago
-```
+![etoro-tui screenshot — Bloomberg-style portfolio dashboard in the terminal](docs/screenshot.png)
+
+*Screenshot taken in `--demo` mode (synthetic 8-position portfolio, no credentials needed).*
+
+> [!IMPORTANT]
+> ## Generate a READ-ONLY API key
+>
+> When you create your eToro Public API key (Settings → Trading → API Key Management), **set the permission to `Read` only**. Do **not** grant `Write`.
+>
+> - etoro-tui only ever calls **read** endpoints (`GET /portfolio`, `GET /market-data/instruments/rates`). Write access is unnecessary for everything this tool does.
+> - With a Read-only key, even if the credential leaks, an attacker cannot place trades, withdraw funds, or modify your positions on your behalf — they only see what you'd see.
+> - The setup wizard reminds you of this when generating keys. There is no "default to least privilege" setting on eToro's side — it's on you to pick `Read` at key-creation time.
+
+## What this tool does — and what it does **not** do
+
+**Does:**
+- Reads your live portfolio: positions, cash, equity, open P&L
+- Pulls live market prices (5-second poll) and FX-corrects everything to USD
+- Overlays analyst fundamentals (P/E, target upside, % buy) and BUY/HOLD/SELL signals from open-source data sources
+- Displays the result in a Bloomberg-style terminal dashboard
+- Stores 1-minute equity snapshots locally (`~/.etoro-tui/snapshots.db`) for the "today's Δ" baseline
+
+**Does NOT:**
+- Place trades (buy, sell, close positions) — read-only API endpoints, no exception
+- Deposit or withdraw funds — eToro Public API doesn't even expose those endpoints
+- Modify stop-loss, take-profit, or any other order parameters
+- Send notifications, post to social, or share data with third parties
+- Store or transmit your API keys anywhere except your local machine (env vars, `~/.etoro-tui/.env` mode 600, or your OS keyring)
+- Phone home — no telemetry, no analytics, no error reporting service
 
 ## Features
 
@@ -82,7 +100,7 @@ etoro-tui setup
 
 It walks you through:
 
-1. **Generating an eToro API key** — Settings → Trading → API Key Management. Copy both keys *immediately*; eToro shows the user-key only once.
+1. **Generating an eToro API key** — Settings → Trading → API Key Management. **Set the permission to `Read` only** — etoro-tui never needs Write. Copy both keys *immediately*; eToro shows the user-key only once.
 2. **Pasting both keys** — Public Key and User Key.
 3. **Choosing where to store them** — `~/.etoro-tui/.env` file (chmod 600), system keyring (if `[keyring]` extra installed and available), or just print `export` commands for your shell profile.
 4. **(Optional) seeding `~/.etoro-tui/config.toml`** from the documented template at [`docs/config.example.toml`](docs/config.example.toml).
@@ -191,11 +209,11 @@ Strict layering: `clients/` does I/O only, `widgets/` does rendering only, `app.
 
 Each column has a **minimum inner width** (hard floor) and a **flex weight** (proportion of leftover terminal width). On mount and on terminal resize, `compute_widths(available)` distributes the spare space proportionally so the table fills your screen — verified working at 140, 180, 220, and 240 cols. Profit / Value / Price get higher weights because their numbers benefit from breathing room; PET / PIs / Buy % get lower weights because their values are 4–5 chars and look weird with lots of trailing space.
 
-## Security & Scope
+## Security hardening
+
+The "what it does / doesn't do" and "use a Read-only key" guidance lives at the top of this README — read those first if you skipped them. This section documents the implementation hardening on top of that scope contract.
 
 **Personal portfolio dashboard. Single-user, runs locally on your machine.**
-
-The eToro Public API endpoints used here are **read-only** — `GET /portfolio` and `GET /market-data/instruments/rates`. The app **never** sends trade orders, never deposits, never withdraws. A leaked API key grants visibility into your portfolio, equity, and P&L history — but not the ability to trade on your behalf. When you generate the key, set permission to **Read** (Write is unnecessary).
 
 What's hardened:
 
@@ -205,7 +223,9 @@ What's hardened:
 - All SQL queries parameterized
 - httpx logs pinned to WARNING (no request URLs / no headers in the log file)
 - File logging only — never to terminal — with rotation (4 MB cap)
-- CI runs `ruff` + `pip-audit` on every push and PR
+- CI runs `ruff` + `pip-audit` + `gitleaks` on every push and PR
+- Pre-commit `gitleaks` hook (custom rules in [`.gitleaks.toml`](.gitleaks.toml)) blocks committing secrets locally; same scan runs in CI as a backstop
+- GitHub native secret scanning + push protection enabled on this repo
 - Dependabot enabled for `pip` + GitHub Actions
 
 What's **not** done:
