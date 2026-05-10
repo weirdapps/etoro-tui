@@ -1,6 +1,6 @@
 """Single-row Bloomberg-style header — no vertical dividers.
 
-  $100,000.00 ▲+0.26%   Cash $20K   P&L +$5K   ▁▂▃▅▆▇   S&P 5,432 ▲+0.34%   NDX 17,234 ▲+0.45%   DOW 40,123 ▼-0.21%        14:23 EEST  ●
+  $100,000.00 ▲+0.50%   Cash $20K   P&L +$5K   ▁▂▃▅▆▇   S&P 5,432 ▲+0.34%   NDX 17,234 ▲+0.45%   DOW 40,123 ▼-0.21%        14:23 EEST  ●
 
 Two-section layout: portfolio data + indices on the LEFT (packs flush left),
 clock + status dot anchored to the RIGHT edge. Sections separated by

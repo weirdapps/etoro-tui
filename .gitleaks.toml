@@ -1,0 +1,56 @@
+# gitleaks configuration for etoro-tui
+#
+# Extends gitleaks' default ruleset (AWS / GCP / GitHub / Slack / generic API
+# keys, JWTs, SSH keys, etc.) with eToro-specific account fingerprints and
+# author-PII patterns that the generic detector won't catch.
+#
+# Two enforcement points:
+#   1. Local: pre-commit hook (.pre-commit-config.yaml) — blocks commits
+#   2. CI: secrets-scan job in .github/workflows/ci.yml — blocks PRs/pushes
+#
+# To run manually:  gitleaks detect --config .gitleaks.toml --source .
+
+[extend]
+useDefault = true
+
+# ─── Custom rules ──────────────────────────────────────────────────────────
+
+[[rules]]
+id = "nbg-corporate-email"
+description = "NBG corporate email — use plessasdimitrios@yahoo.com for OSS attribution"
+regex = '''[\w.+-]+@nbg\.gr\b'''
+tags = ["pii", "personal"]
+
+[[rules]]
+id = "etoro-customer-id"
+description = "Likely eToro Customer ID (CID) field with a realistic non-zero value"
+regex = '''(?i)\b(?:CID|customer_?id)\b\s*[:=]\s*"?[1-9]\d{5,8}\b'''
+tags = ["pii", "etoro-account"]
+
+[[rules]]
+id = "etoro-position-id"
+description = "Likely eToro Position ID field with a realistic non-zero value"
+regex = '''(?i)\b(?:positionID|position_id)\b\s*[:=]\s*"?[1-9]\d{8,}\b'''
+tags = ["pii", "etoro-account"]
+
+[[rules]]
+id = "etoro-equity-fingerprint-cents"
+description = "Dollar amount with non-zero cents (likely a real account snapshot, not a synthetic mockup)"
+# Matches:  $100,000.00  /  $100,000.00  — values with cents that aren't .00
+# Allows:   $100,000.00  /  $1,000,000.00  — clearly synthetic round numbers
+# RE2 has no negative lookahead, so we enumerate "non-.00 cents":
+#   [1-9][0-9]  → 10-99 (first cents digit non-zero)
+#   [0-9][1-9]  → 01-09, x1-x9 (last cents digit non-zero)
+# Together: every two-digit combination except 00.
+regex = '''\$\d{1,3}(?:,\d{3})+\.(?:[1-9][0-9]|[0-9][1-9])'''
+tags = ["pii", "etoro-account", "fingerprint"]
+
+# ─── Allowlist ─────────────────────────────────────────────────────────────
+
+[allowlist]
+description = "Files allowed to mention pattern-like content"
+paths = [
+    '''(?i)\.gitleaks\.toml$''',          # this file documents the patterns
+    '''(?i)docs/etoro-api-actual\.md$''', # API doc — explicit synthetic values
+    '''(?i)CHANGELOG\.md$''',             # version numbers can look like amounts
+]

@@ -7,6 +7,20 @@ on:
     branches: [master, main]
 
 jobs:
+  secrets-scan:
+    name: gitleaks (secret + account-fingerprint scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
   lint:
     name: ruff (lint + format check)
     runs-on: ubuntu-latest
@@ -52,7 +66,7 @@ jobs:
   test:
     name: pytest (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
-    needs: [lint, audit]
+    needs: [secrets-scan, lint, audit]
     strategy:
       fail-fast: false
       matrix:

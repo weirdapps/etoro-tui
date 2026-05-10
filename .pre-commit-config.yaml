@@ -1,0 +1,13 @@
+# Pre-commit hooks — install once with: `pre-commit install`
+# Run manually across the whole tree: `pre-commit run --all-files`
+#
+# Hooks block the commit if they fail. To bypass in an emergency,
+# `git commit --no-verify` exists — but if a secret-scan flags something,
+# it's almost always a real leak. Investigate before bypassing.
+
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+        name: gitleaks (secret + account-fingerprint scan)
