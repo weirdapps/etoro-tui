@@ -241,6 +241,19 @@ python -m etoro_tui --demo       # smoke-test the UI
 
 CI runs on Python 3.13 against Ubuntu + macOS for every push and PR.
 
+### Pre-commit secret scanning
+
+The repo ships a `gitleaks` pre-commit hook (custom rules in
+[`.gitleaks.toml`](.gitleaks.toml)) that blocks any commit containing API
+keys or account-fingerprint dollar amounts. Install once after cloning:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+The same scan also runs in CI as a backstop on every push and PR.
+
 Areas where contributions would land cleanly:
 
 - More built-in indices (FTSE 250, ASX 200, KOSPI…)

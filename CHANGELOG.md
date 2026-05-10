@@ -88,6 +88,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   "(awaiting census prev_close)" when no positions have a baseline.
 - **Stale `styles.tcss` docstring** that claimed a 2-row header (it's 1 row).
 
+### Security
+
+- **`gitleaks` integration** — pre-commit hook + CI job that scans every
+  commit and PR for secrets (default ruleset) plus custom patterns for
+  account-fingerprint dollar amounts and any future PII drift. Config in
+  [`.gitleaks.toml`](.gitleaks.toml). Local install:
+  `pip install pre-commit && pre-commit install`.
+- **README + header docstring mockups** redacted to clearly synthetic
+  round numbers (`$100,000.00`, `Cash $20K`, `EXAMPLE1..5` tickers) so the
+  rendered example never resembles a real account snapshot.
+
 ## [0.2.0] — 2026-05-06
 
 First public release. Hardens the project for distribution on PyPI and GitHub.
