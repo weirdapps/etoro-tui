@@ -4,9 +4,14 @@ Column labels are deliberately precise so nothing is mistaken for live data:
 
   SYMBOL    — eToro instrument symbol (live; positions added/removed as you trade)
   Price     — last execution from /market-data/instruments/rates (LIVE, ~5s poll)
-              falls back to census priceData (yesterday's close) if rates fail
+              in the instrument's listing currency. Matches the quote on
+              Yahoo / eToro web / the issuer page. Falls back to census
+              priceData (yesterday's close) if rates fail.
+  Curr      — listing currency code (USD / EUR / GBp / HKD / DKK / …),
+              derived from the symbol suffix; "—" when the suffix is unknown.
   Δday      — (Price − prev_close) / prev_close · 100, where prev_close is
               yesterday's close from census priceData (DAILY refresh ~00:00 UTC).
+              FX-invariant — same number whether computed in USD or local.
               Shows "—" for symbols not covered by census.
   Value     — units × Price, in USD (live, integer rounding)
   Allocation — Value / total equity (live)
@@ -22,9 +27,9 @@ Column labels are deliberately precise so nothing is mistaken for live data:
 Lots and per-position Units live in the detail panel — for daily glance the
 aggregated $ matters more than how many lots accumulated it.
 
-Δday uses census `currentPrice` (yesterday's close) as prev_close, FX-adjusted
-to USD with the live OCR; if a symbol is not in the census file (rare for
-US stocks, common for some illiquid instruments) Δday shows "—".
+Value / Profit / Allocation are FX-converted to USD (account currency) so
+totals roll up correctly. Only the per-share Price column shows the local
+quote — that's the cell users cross-check against external sources.
 """
 
 from __future__ import annotations
@@ -90,6 +95,7 @@ _SIG_STYLE = {
 _COL_SPECS: tuple[tuple[str, str, int, float, str], ...] = (
     ("SYMBOL", "SYMBOL", 9, 1.0, "left"),
     ("│ Price", "Price", 8, 1.2, "right"),
+    ("│ Curr", "Curr", 4, 0.2, "center"),
     ("│ Δday", "Δday", 8, 0.8, "right"),
     ("│ Value", "Value", 9, 1.2, "right"),
     ("│ Alloc", "Alloc", 6, 0.4, "right"),
@@ -179,8 +185,15 @@ def _cell(value: str, col: str, *, style: str = "", align: str | None = None) ->
 
 
 def _money(v: float) -> Text:
-    """Two-decimal money for the Price column."""
+    """Two-decimal money for the Price column. Currency lives in its own column."""
     return _cell(f"{v:,.2f}", "Price")
+
+
+def _currency(ccy: str) -> Text:
+    """Currency code for the Curr column. Dim '—' when unknown."""
+    if not ccy:
+        return _cell("—", "Curr", style="dim", align="center")
+    return _cell(ccy, "Curr", style="dim", align="center")
 
 
 def _money_int(v: float) -> Text:
@@ -419,10 +432,18 @@ class PositionsTable(Vertical):
         eq = self.equity if self.equity > 0 else 0
         for p in self._sorted_filtered_positions():
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
+            # Price column shows the listing-currency quote (matches Yahoo /
+            # eToro web). USD-quoted instruments fall through to current_rate
+            # since it equals the local quote (OCR=1.0). Non-USD positions
+            # built by _to_position carry quote_price; demo / synthetic
+            # positions without it default to current_rate (USD).
+            price = p.quote_price if p.quote_price is not None else p.current_rate
+            prev = p.quote_prev if p.quote_prev is not None else p.prev_close
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _money(p.current_rate),  # Price (decimals)
-                _day_change_pct(p.current_rate, p.prev_close),  # Δday
+                _money(price),  # Price (decimals)
+                _currency(p.currency),  # Curr (USD / EUR / GBp / HKD / DKK / …)
+                _day_change_pct(price, prev),  # Δday (FX-invariant)
                 _money_int(p.value),  # Value (integer)
                 _eq_pct(pct_eq),  # Allocation
                 _pnl(p.pnl),  # Profit (integer)

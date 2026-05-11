@@ -24,7 +24,7 @@
 
 **Does:**
 - Reads your live portfolio: positions, cash, equity, open P&L
-- Pulls live market prices (5-second poll) and FX-corrects everything to USD
+- Pulls live market prices (5-second poll) — Price column shows the listing-currency quote (matches Yahoo / eToro web), Value / Profit roll up in USD
 - Overlays analyst fundamentals (P/E, target upside, % buy) and BUY/HOLD/SELL signals from open-source data sources
 - Displays the result in a Bloomberg-style terminal dashboard
 - Stores 1-minute equity snapshots locally (`~/.etoro-tui/snapshots.db`) for the "today's Δ" baseline
@@ -39,11 +39,11 @@
 
 ## Features
 
-- **Live prices** — eToro `/market-data/instruments/rates` polled every 5s, FX-corrected to USD across all exchanges (London pence, Hong Kong dollars, Danish kroner, etc.)
+- **Live prices** — eToro `/market-data/instruments/rates` polled every 5s. Price column shows the listing-currency quote (`LYXGRE.DE` 2.51 EUR, `PRU.L` 1,138.50 GBp, `0700.HK` 464.80 HKD); the `Curr` column tags each row's currency. Value / Profit / Allocation are FX-converted to USD (account currency) so totals roll up correctly.
 - **Bloomberg-style colour grading** — 3-tier intensity (bold bright / normal / dim) on Δday and Profit so magnitude pops at a glance. Magnitude-coded triangles (▲▴▾▼) for direction-and-size in one glyph.
 - **Honest day-change** — Δday computed from yesterday's close (census `priceData`) FX-adjusted to USD, not lifetime return relabeled
 - **Parametric flex columns** — table fills any terminal width via per-column min + flex weights. Verified at 140 / 180 / 220 / 240 cols.
-- **Inline header indices** — S&P 500, NASDAQ, Dow 30 (FX-converted to USD for consistency with portfolio rows). Up to 3 fit in the bar.
+- **Inline header indices** — S&P 500, NASDAQ, Dow 30 in their native quote currency (USD); a configured Greek ETF / EuroStx50 line shows in EUR. Up to 3 fit in the bar.
 - **Aggregated by ticker** — many lots per symbol collapsed into one row with weighted-avg open and total P&L
 - **Fundamentals** — trailing/forward P/E, analyst target upside, % buy ratings, popular-investor holding rate
 - **Honest labels** — "Δday" not "Δ%"; "Profit" is lifetime, "Δday" is today; "—" when census coverage is missing rather than fake zeros

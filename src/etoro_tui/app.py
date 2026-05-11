@@ -53,6 +53,33 @@ class _OverlayKwargs(TypedDict):
     target_price: float | None
 
 
+# Symbol-suffix → listing currency. Census doesn't expose currency; the
+# eToro suffix is the next-most-reliable signal. London (.L) defaults to
+# GBp because the vast majority of LSE equities (incl. user holding PRU.L)
+# quote in pence; .L instruments in GBP would render with a GBp tag and
+# look 100× too large — a known edge case worth handling if it surfaces.
+_SUFFIX_CCY: dict[str, str] = {
+    "DE": "EUR", "PA": "EUR", "AS": "EUR", "MI": "EUR", "MC": "EUR",
+    "BR": "EUR", "VI": "EUR", "HE": "EUR", "LS": "EUR", "IR": "EUR",
+    "L": "GBp", "HK": "HKD", "CO": "DKK", "ST": "SEK", "OL": "NOK",
+    "SW": "CHF", "T": "JPY", "AX": "AUD", "TO": "CAD", "MX": "MXN",
+}
+
+
+def _currency_for(symbol: str, ocr: float) -> str:
+    """Listing-currency code for the Price column tag.
+
+    `ocr ≈ 1.0` → USD (covers US equities and crypto, both quoted in USD).
+    Otherwise the suffix after the last '.' is looked up; unknown suffixes
+    return "" so the Price column omits the tag rather than misleading.
+    """
+    if abs(ocr - 1.0) < 0.001:
+        return "USD"
+    if "." in symbol:
+        return _SUFFIX_CCY.get(symbol.rsplit(".", 1)[-1].upper(), "")
+    return ""
+
+
 def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str, int]]:
     """Map the configured display-name list to (display_name, instrumentId)
     pairs that actually exist in the census. The list comes from the user's
@@ -70,12 +97,21 @@ def _build_indices(
     instruments: dict[int, InstrumentInfo],
     pairs: list[tuple[str, int]],
 ) -> tuple[IndexSummary, ...]:
-    """Build IndexSummary list. Prices are FX-converted to USD for consistency
-    with the portfolio rows — otherwise the same ticker (e.g. LYXGRE.DE which
-    is EUR-denominated) shows two different numbers in the two panels.
+    """Build IndexSummary list using each instrument's native quote currency.
 
-    live = lastExecution × conversionRateAsk  (USD)
-    prev = census currentPrice × conversionRateAsk (USD, same FX as live)
+    Indices and ETFs are universally quoted in their listing currency
+    (S&P 500 in USD, EuroStx50 in EUR, LYXGRE.DE in EUR). Showing a
+    USD-converted number for a EUR ETF (e.g. $2.96 for LYXGRE.DE which
+    Yahoo / eToro web / the issuer all quote at €2.51) doesn't match any
+    external reference and reads as a wrong price.
+
+    Trade-off: the same instrument can show a different number in the
+    portfolio table, which stays USD-denominated (account currency) for
+    P&L consistency. The side panel mirrors the market quote; the portfolio
+    mirrors the position value.
+
+    live = lastExecution           (instrument's listing currency)
+    prev = census currentPrice     (same listing currency)
     """
     out: list[IndexSummary] = []
     for name, inst_id in pairs:
@@ -84,14 +120,12 @@ def _build_indices(
         if not rate or not info:
             continue
         try:
-            local_live = float(rate.get("lastExecution") or rate.get("bid") or 0)
+            live = float(rate.get("lastExecution") or rate.get("bid") or 0)
         except (TypeError, ValueError):
             continue
-        if local_live <= 0:
+        if live <= 0:
             continue
-        ocr = float(rate.get("conversionRateAsk", 1.0))
-        live = local_live * ocr
-        prev = (float(info.current_price) * ocr) if info.current_price else 0.0
+        prev = float(info.current_price) if info.current_price else 0.0
         change_pct = ((live - prev) / prev * 100) if prev > 0 else 0.0
         out.append(IndexSummary(name=name, last=live, change_pct=change_pct))
     return tuple(out)
@@ -157,7 +191,8 @@ def _to_position(
     sym = info.symbol.upper()
     units = float(raw["units"])
     open_ocr = float(raw.get("openConversionRate", 1.0))
-    open_rate = float(raw["openRate"]) * open_ocr  # local→USD (cost basis)
+    local_open = float(raw["openRate"])
+    open_rate = local_open * open_ocr  # local→USD (cost basis)
 
     # Pick the first sensible live (price, FX) pair. Walk keys explicitly so
     # a 0.0 (briefly possible during corp actions / data glitches) doesn't
@@ -185,12 +220,14 @@ def _to_position(
     else:
         # Fall back to yesterday's close from census, FX'd at open rate.
         current_ocr = open_ocr
-        current_rate = float(info.current_price) * open_ocr
+        local_now = float(info.current_price) if info.current_price else 0.0
+        current_rate = local_now * open_ocr
     # Yesterday's close (USD), for Δday. Census stores prices in the local
     # listing currency, so FX it at the same OCR used for current_rate to
     # keep the Δday calculation pure-price (FX neutralises across both
     # sides). When live rates fail we fall back to current_ocr=open_ocr.
-    prev_close = float(info.current_price) * current_ocr if info.current_price else None
+    local_prev = float(info.current_price) if info.current_price else None
+    prev_close = local_prev * current_ocr if local_prev else None
     is_buy = bool(raw["isBuy"])
     direction_sign = 1 if is_buy else -1
     value = current_rate * units
@@ -209,6 +246,9 @@ def _to_position(
         pnl_pct=pnl_pct,
         open_ts=datetime.fromisoformat(raw["openDateTime"].replace("Z", "+00:00")),
         prev_close=prev_close,
+        quote_price=local_now if local_now > 0 else None,
+        quote_prev=local_prev,
+        currency=_currency_for(sym, current_ocr),
         **_overlay_fields(sym, fund, pi_pct),
     )
 
@@ -263,6 +303,9 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
                 analyst_buy_pct=first.analyst_buy_pct,
                 target_price=first.target_price,
                 prev_close=first.prev_close,
+                quote_price=first.quote_price,
+                quote_prev=first.quote_prev,
+                currency=first.currency,
             )
         )
     return tuple(out)

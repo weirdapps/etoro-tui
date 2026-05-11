@@ -7,8 +7,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-11
+
 ### Added
 
+- **`Curr` column** — listing currency code (USD / EUR / GBp / HKD / DKK / …)
+  rendered between Price and Δday. Derived from the symbol suffix with
+  `conversionRateAsk ≈ 1.0` as the USD signal. Column count: 13.
+- **`Position.quote_price` / `quote_prev` / `currency`** — listing-currency
+  fields used by the table for the Price column. `current_rate` / `open_rate` /
+  `prev_close` keep their USD semantics so the SQLite snapshot schema and
+  Value/Profit math are untouched.
 - **Bloomberg-style table** — vertical `│` dividers between cells, magnitude-coded
   triangles (▲▴▾▼) for Δday, 3-tier colour gradient (bold bright / normal / dim)
   on Δday and Profit so magnitude pops at a glance, refined cyan/navy cursor.
@@ -41,14 +50,21 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 ### Changed
 
 - **Single-panel layout** — table spans the full terminal width. The right
-  detail panel was removed (see below). Column count: 12.
+  detail panel was removed (see below).
 - **Header has no `│` dividers** — replaced with whitespace gaps for a cleaner
   scan path. Status indicator is now a coloured dot only (no "live" / "slow"
   text label).
-- **`_build_indices` applies FX** — same `conversionRateAsk` as `_to_position`,
-  so EUR-quoted instruments (`LYXGRE.DE`, `EuroStx50`) match the USD prices
-  shown in the portfolio table. Previously the same instrument could show two
-  different prices in the two panels.
+- **Price column shows the listing-currency quote** — `LYXGRE.DE` reads as
+  `2.51` (EUR), `PRU.L` as `1,138.50` (GBp), `0700.HK` as `464.80` (HKD), etc.,
+  matching what Yahoo / eToro web / the issuer publishes. Value / Profit /
+  Allocation stay USD because account-currency totals are what roll up. The
+  earlier `_build_indices` design (USD-converted side-panel prices for
+  consistency with the portfolio rows) was reverted for the same reason —
+  side-panel `GRE 2.51` / `STX 5,889` now matches the market quote, not a
+  USD-converted number nobody else publishes.
+- **Header price formatter adapts to magnitude** — values ≥100 render as
+  integer, ≥10 with one decimal, otherwise two decimals. Stops `GRE` from
+  rounding `2.51 → "3"`.
 - **`_to_position` price selection** — replaced the lazy `or` chain with
   explicit `None` / `0.0` checks. Walks live keys (`lastExecution` → `Bid` →
   `bid`) accepting the first `> 0` value. All-missing → census fallback,
