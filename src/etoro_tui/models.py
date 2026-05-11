@@ -37,6 +37,15 @@ class Position:
     # column. None when the symbol is not in the census file. Stored in the
     # instrument's local listing currency, same as census.
     prev_close: float | None = None
+    # Display fields for the Price column. The Price column shows the
+    # listing-currency market quote (matches Yahoo / eToro web / issuer
+    # pages) so a EUR-listed ETF doesn't read as a USD-converted number
+    # nobody else publishes. Value/Profit columns stay USD (account
+    # currency) so totals make sense. None → caller falls back to
+    # current_rate / prev_close (which are USD).
+    quote_price: float | None = None
+    quote_prev: float | None = None
+    currency: str = "USD"
 
 
 @dataclass(frozen=True)

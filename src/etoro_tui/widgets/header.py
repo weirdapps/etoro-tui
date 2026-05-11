@@ -39,9 +39,17 @@ def _index_text(ix: IndexSummary, max_name: int = 4) -> Text:
     arrow = "▲" if ix.change_pct >= 0 else "▼"
     sign = "+" if ix.change_pct >= 0 else ""
     color = "green" if ix.change_pct >= 0 else "red"
+    # Format price by magnitude so low-priced ETFs (LYXGRE.DE ~€2.51) keep
+    # their decimals instead of rounding to a useless integer.
+    if ix.last >= 100:
+        price = f"{ix.last:,.0f}"
+    elif ix.last >= 10:
+        price = f"{ix.last:.1f}"
+    else:
+        price = f"{ix.last:.2f}"
     return Text.assemble(
         (f"{short} ", "dim"),
-        (f"{ix.last:,.0f} ", ""),
+        (f"{price} ", ""),
         (f"{arrow}{sign}{ix.change_pct:.2f}%", color),
     )
 
