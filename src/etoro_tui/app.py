@@ -60,10 +60,26 @@ class _OverlayKwargs(TypedDict):
 # quote in pence; .L instruments in GBP would render with a GBp tag and
 # look 100× too large — a known edge case worth handling if it surfaces.
 _SUFFIX_CCY: dict[str, str] = {
-    "DE": "EUR", "PA": "EUR", "AS": "EUR", "MI": "EUR", "MC": "EUR",
-    "BR": "EUR", "VI": "EUR", "HE": "EUR", "LS": "EUR", "IR": "EUR",
-    "L": "GBp", "HK": "HKD", "CO": "DKK", "ST": "SEK", "OL": "NOK",
-    "SW": "CHF", "T": "JPY", "AX": "AUD", "TO": "CAD", "MX": "MXN",
+    "DE": "EUR",
+    "PA": "EUR",
+    "AS": "EUR",
+    "MI": "EUR",
+    "MC": "EUR",
+    "BR": "EUR",
+    "VI": "EUR",
+    "HE": "EUR",
+    "LS": "EUR",
+    "IR": "EUR",
+    "L": "GBp",
+    "HK": "HKD",
+    "CO": "DKK",
+    "ST": "SEK",
+    "OL": "NOK",
+    "SW": "CHF",
+    "T": "JPY",
+    "AX": "AUD",
+    "TO": "CAD",
+    "MX": "MXN",
 }
 
 
