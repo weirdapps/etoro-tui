@@ -97,18 +97,18 @@ _SIG_STYLE = {
 _COL_SPECS: tuple[tuple[str, str, int, float, str], ...] = (
     ("SYMBOL", "SYMBOL", 9, 1.0, "left"),
     ("│ Price", "Price", 8, 1.2, "right"),
-    ("│ Curr", "Curr", 4, 0.2, "center"),
+    ("│ Curr", "Curr", 3, 0.2, "center"),
     ("│ Δday", "Δday", 8, 0.8, "right"),
     ("│ Value", "Value", 9, 1.2, "right"),
-    ("│ Alloc", "Alloc", 6, 0.4, "right"),
+    ("│ Alloc", "Alloc", 5, 0.4, "right"),
     ("│ Profit", "Profit", 9, 1.5, "right"),
     ("│ PET", "PET", 5, 0.3, "right"),
     ("│ PEF", "PEF", 5, 0.3, "right"),
     ("│ Upside", "Upside", 7, 0.8, "right"),
-    ("│ Buy %", "Buy %", 6, 0.4, "right"),
-    ("│ ΔBuy", "ΔBuy", 6, 0.4, "right"),
-    ("│ PIs", "PIs", 5, 0.3, "right"),
-    ("│ Signal", "Signal", 6, 0.4, "center"),
+    ("│ Buy %", "Buy %", 5, 0.4, "right"),
+    ("│ ΔBuy", "ΔBuy", 4, 0.3, "right"),
+    ("│ PIs", "PIs", 4, 0.3, "right"),
+    ("│ Signal", "Signal", 4, 0.4, "center"),
 )
 
 # Mutable inner widths — compute_widths() updates these on mount/resize, and
