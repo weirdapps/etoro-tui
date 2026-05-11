@@ -21,6 +21,8 @@ Column labels are deliberately precise so nothing is mistaken for live data:
   PEF       — forward 12m P/E (DAILY)
   Upside    — analyst-target implied upside (DAILY)
   Buy %     — % of analyst recs = BUY (DAILY)
+  ΔBuy      — change in Buy % over the past 3 months (etorotrade AM, DAILY)
+              ▲ upgrades / ▼ downgrades — bright when ≥|5|pp
   PIs       — % of eToro popular investors holding (DAILY)
   Signal    — etorotrade BUY / SELL / HOLD (DAILY)
 
@@ -104,6 +106,7 @@ _COL_SPECS: tuple[tuple[str, str, int, float, str], ...] = (
     ("│ PEF", "PEF", 5, 0.3, "right"),
     ("│ Upside", "Upside", 7, 0.8, "right"),
     ("│ Buy %", "Buy %", 6, 0.4, "right"),
+    ("│ ΔBuy", "ΔBuy", 6, 0.4, "right"),
     ("│ PIs", "PIs", 5, 0.3, "right"),
     ("│ Signal", "Signal", 6, 0.4, "center"),
 )
@@ -289,6 +292,24 @@ def _buy_pct(v: float | None) -> Text:
     return _cell(f"{v:.0f}%", "Buy %", style=style)
 
 
+def _buy_momentum(v: float | None) -> Text:
+    """Δ in analyst Buy % over 3 months (etorotrade AM column).
+
+    ▲ upgrades / ▼ downgrades. Symmetric thresholds:
+      |Δ| ≥ 5pp → bright, |Δ| ≥ 1pp → normal, otherwise dim.
+    Sub-threshold values (-1 < Δ < 1) render as dim "0" with no arrow,
+    visually deprioritising noise so real moves stand out.
+    """
+    if v is None:
+        return _cell("—", "ΔBuy", style="dim")
+    if -1 < v < 1:
+        return _cell("0", "ΔBuy", style="dim")
+    glyph = "▲" if v > 0 else "▼"
+    sign = "+" if v > 0 else "−"
+    color = _grad_color(v, thresholds=(1.0, 5.0), positive=v > 0)
+    return _cell(f"{glyph}{sign}{abs(v):.0f}", "ΔBuy", style=color)
+
+
 class PositionsTable(Vertical):
     positions: reactive[tuple[Position, ...]] = reactive(())
     equity: reactive[float] = reactive(0.0)
@@ -451,6 +472,7 @@ class PositionsTable(Vertical):
                 _pe(p.pe_forward, "PEF"),  # PEF
                 _upside(p.upside_pct),  # Upside
                 _buy_pct(p.analyst_buy_pct),  # Buy %
+                _buy_momentum(p.analyst_momentum),  # ΔBuy
                 _pi(p.pi_pct),  # PIs
                 _signal(p.signal),  # Signal
                 key=str(p.position_id),

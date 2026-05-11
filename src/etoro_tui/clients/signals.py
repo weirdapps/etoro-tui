@@ -45,6 +45,7 @@ class Fundamentals(NamedTuple):
     pe_forward: float | None  # PEF — forward 12-month P/E
     upside_pct: float | None  # UP% — analyst target / current - 1, in %
     analyst_buy_pct: float | None  # %B — % of analysts saying buy
+    analyst_momentum: float | None  # AM — 3-month change in buy% (+ = upgrades)
     target_price: float | None  # TGT — analyst consensus target
 
 
@@ -112,6 +113,7 @@ class SignalsReader:
                     pe_forward=_parse_num(row.get("PEF")),
                     upside_pct=_parse_num(row.get("UP%")),
                     analyst_buy_pct=_parse_num(row.get("%B")),
+                    analyst_momentum=_parse_num(row.get("AM")),
                     target_price=_parse_num(row.get("TGT")),
                 )
         self._cache_signals = signals
