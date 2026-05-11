@@ -52,19 +52,13 @@
 
 ## Install
 
-```bash
-pipx install etoro-tui                       # env vars or .env file only
-pipx install "etoro-tui[keyring]"            # adds OS keyring support
-```
-
-Or with `uv`:
+From the [latest GitHub Release](https://github.com/weirdapps/etoro-tui/releases/latest) wheel:
 
 ```bash
-uv tool install etoro-tui
-uv tool install "etoro-tui[keyring]"         # with keyring
+pipx install https://github.com/weirdapps/etoro-tui/releases/download/v0.4.0/etoro_tui-0.4.0-py3-none-any.whl
 ```
 
-Or from source:
+From source:
 
 ```bash
 git clone https://github.com/weirdapps/etoro-tui.git
@@ -72,6 +66,13 @@ cd etoro-tui
 uv venv --python 3.13
 source .venv/bin/activate
 uv pip install -e ".[dev,keyring]"
+```
+
+Once published to PyPI:
+
+```bash
+pipx install etoro-tui                       # env vars or .env file only
+pipx install "etoro-tui[keyring]"            # adds OS keyring support
 ```
 
 Requires Python 3.13+.
