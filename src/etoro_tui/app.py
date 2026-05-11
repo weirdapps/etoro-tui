@@ -50,6 +50,7 @@ class _OverlayKwargs(TypedDict):
     pe_forward: float | None
     upside_pct: float | None
     analyst_buy_pct: float | None
+    analyst_momentum: float | None
     target_price: float | None
 
 
@@ -59,10 +60,26 @@ class _OverlayKwargs(TypedDict):
 # quote in pence; .L instruments in GBP would render with a GBp tag and
 # look 100× too large — a known edge case worth handling if it surfaces.
 _SUFFIX_CCY: dict[str, str] = {
-    "DE": "EUR", "PA": "EUR", "AS": "EUR", "MI": "EUR", "MC": "EUR",
-    "BR": "EUR", "VI": "EUR", "HE": "EUR", "LS": "EUR", "IR": "EUR",
-    "L": "GBp", "HK": "HKD", "CO": "DKK", "ST": "SEK", "OL": "NOK",
-    "SW": "CHF", "T": "JPY", "AX": "AUD", "TO": "CAD", "MX": "MXN",
+    "DE": "EUR",
+    "PA": "EUR",
+    "AS": "EUR",
+    "MI": "EUR",
+    "MC": "EUR",
+    "BR": "EUR",
+    "VI": "EUR",
+    "HE": "EUR",
+    "LS": "EUR",
+    "IR": "EUR",
+    "L": "GBp",
+    "HK": "HKD",
+    "CO": "DKK",
+    "ST": "SEK",
+    "OL": "NOK",
+    "SW": "CHF",
+    "T": "JPY",
+    "AX": "AUD",
+    "TO": "CAD",
+    "MX": "MXN",
 }
 
 
@@ -150,6 +167,7 @@ def _overlay_fields(
         "pe_forward": fund.pe_forward if fund else None,
         "upside_pct": fund.upside_pct if fund else None,
         "analyst_buy_pct": fund.analyst_buy_pct if fund else None,
+        "analyst_momentum": fund.analyst_momentum if fund else None,
         "target_price": fund.target_price if fund else None,
     }
 
@@ -301,6 +319,7 @@ def _aggregate_by_symbol(positions: Iterable[Position]) -> tuple[Position, ...]:
                 pe_forward=first.pe_forward,
                 upside_pct=first.upside_pct,
                 analyst_buy_pct=first.analyst_buy_pct,
+                analyst_momentum=first.analyst_momentum,
                 target_price=first.target_price,
                 prev_close=first.prev_close,
                 quote_price=first.quote_price,

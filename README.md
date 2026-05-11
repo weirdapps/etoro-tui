@@ -45,26 +45,20 @@
 - **Parametric flex columns** — table fills any terminal width via per-column min + flex weights. Verified at 140 / 180 / 220 / 240 cols.
 - **Inline header indices** — S&P 500, NASDAQ, Dow 30 in their native quote currency (USD); a configured Greek ETF / EuroStx50 line shows in EUR. Up to 3 fit in the bar.
 - **Aggregated by ticker** — many lots per symbol collapsed into one row with weighted-avg open and total P&L
-- **Fundamentals** — trailing/forward P/E, analyst target upside, % buy ratings, popular-investor holding rate
+- **Fundamentals** — trailing/forward P/E, analyst target upside, % buy ratings, 3-month change in buy% (ΔBuy), popular-investor holding rate
 - **Honest labels** — "Δday" not "Δ%"; "Profit" is lifetime, "Δday" is today; "—" when census coverage is missing rather than fake zeros
 - **Local-first, GitHub-fallback** for the daily-refreshed data sources (no scraping, no API keys for census/signals)
 - **Single-line footer** — key legend + sort + last-fetch + status. No detail panel; the table IS the dashboard.
 
 ## Install
 
-```bash
-pipx install etoro-tui                       # env vars or .env file only
-pipx install "etoro-tui[keyring]"            # adds OS keyring support
-```
-
-Or with `uv`:
+From the [latest GitHub Release](https://github.com/weirdapps/etoro-tui/releases/latest) wheel:
 
 ```bash
-uv tool install etoro-tui
-uv tool install "etoro-tui[keyring]"         # with keyring
+pipx install https://github.com/weirdapps/etoro-tui/releases/download/v0.4.0/etoro_tui-0.4.0-py3-none-any.whl
 ```
 
-Or from source:
+From source:
 
 ```bash
 git clone https://github.com/weirdapps/etoro-tui.git
@@ -72,6 +66,13 @@ cd etoro-tui
 uv venv --python 3.13
 source .venv/bin/activate
 uv pip install -e ".[dev,keyring]"
+```
+
+Once published to PyPI:
+
+```bash
+pipx install etoro-tui                       # env vars or .env file only
+pipx install "etoro-tui[keyring]"            # adds OS keyring support
 ```
 
 Requires Python 3.13+.
@@ -174,7 +175,7 @@ list = [
 |---|---|---|
 | `public-api.etoro.com /api/v1/trading/info/portfolio` | open positions + cash | live (5s poll) |
 | `public-api.etoro.com /api/v1/market-data/instruments/rates` | last/bid/ask + FX rates | live (5s poll) |
-| [`weirdapps/etorotrade`](https://github.com/weirdapps/etorotrade) `etoro.csv` | analyst signals + P/E + upside + buy% | daily (~22:00 UTC) |
+| [`weirdapps/etorotrade`](https://github.com/weirdapps/etorotrade) `etoro.csv` | analyst signals + P/E + upside + buy% + 3-month buy% change | daily (~22:00 UTC) |
 | [`weirdapps/etoro_census`](https://github.com/weirdapps/etoro_census) `etoro-data-*.json` | popular-investor holdings + close prices | daily (~03:00 UTC) |
 
 Local files (if you have the source repos cloned) take priority; otherwise the daily-refreshed sources are pulled from GitHub raw / Contents API and cached in `~/.etoro-tui/cache/` for 6 hours.
@@ -207,7 +208,7 @@ Strict layering: `clients/` does I/O only, `widgets/` does rendering only, `app.
 
 ### Column widths are parametric
 
-Each column has a **minimum inner width** (hard floor) and a **flex weight** (proportion of leftover terminal width). On mount and on terminal resize, `compute_widths(available)` distributes the spare space proportionally so the table fills your screen — verified working at 140, 180, 220, and 240 cols. Profit / Value / Price get higher weights because their numbers benefit from breathing room; PET / PIs / Buy % get lower weights because their values are 4–5 chars and look weird with lots of trailing space.
+Each column has a **minimum inner width** (hard floor) and a **flex weight** (proportion of leftover terminal width). On mount and on terminal resize, `compute_widths(available)` distributes the spare space proportionally so the table fills your screen — verified working at 140, 180, 220, and 240 cols. Profit / Value / Price get higher weights because their numbers benefit from breathing room; PET / PIs / Buy % / ΔBuy get lower weights because their values are 4–5 chars and look weird with lots of trailing space.
 
 ## Security hardening
 

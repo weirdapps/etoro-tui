@@ -1,6 +1,6 @@
 [project]
 name = "etoro-tui"
-version = "0.3.0"
+version = "0.4.0"
 description = "Live eToro portfolio TUI with fundamentals, signals, and indices in your terminal"
 readme = "README.md"
 license = { text = "MIT" }

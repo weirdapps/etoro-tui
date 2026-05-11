@@ -25,6 +25,7 @@ def test_overlay_fields_with_full_data() -> None:
         pe_forward=29.0,
         upside_pct=8.6,
         analyst_buy_pct=53.0,
+        analyst_momentum=4.0,
         target_price=210.0,
     )
     out = _overlay_fields("AAPL", fund, {"AAPL": 22.0})
@@ -34,6 +35,7 @@ def test_overlay_fields_with_full_data() -> None:
     assert out["pe_forward"] == 29.0
     assert out["upside_pct"] == 8.6
     assert out["analyst_buy_pct"] == 53.0
+    assert out["analyst_momentum"] == 4.0
     assert out["target_price"] == 210.0
 
 
@@ -45,6 +47,7 @@ def test_overlay_fields_no_fundamentals() -> None:
     assert out["pe_forward"] is None
     assert out["upside_pct"] is None
     assert out["analyst_buy_pct"] is None
+    assert out["analyst_momentum"] is None
     assert out["target_price"] is None
 
 
