@@ -32,6 +32,7 @@ class Position:
     pe_forward: float | None = None  # forward 12m P/E
     upside_pct: float | None = None  # analyst target price implied % upside
     analyst_buy_pct: float | None = None  # % of analyst recommendations = Buy
+    analyst_momentum: float | None = None  # Δ in buy% over 3 months (etorotrade AM)
     target_price: float | None = None  # consensus target price (issuer currency)
     # Yesterday's close (census priceData.currentPrice) — used for the Δday
     # column. None when the symbol is not in the census file. Stored in the
