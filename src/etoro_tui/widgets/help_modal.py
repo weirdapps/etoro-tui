@@ -37,6 +37,7 @@ _DATA_LEGEND = (
     ("PEF", "forward 12m P/E (etorotrade)", "daily"),
     ("Upside", "analyst-target implied upside", "daily"),
     ("Buy %", "% of analyst recs = BUY", "daily"),
+    ("ΔBuy", "Δ in Buy % over 3 months (etorotrade AM) — ▲ upgrades / ▼ downgrades", "daily"),
     ("PIs", "% of eToro popular investors holding", "daily"),
     ("Signal", "etorotrade BUY / SELL / HOLD", "daily"),
 )
@@ -82,7 +83,7 @@ def _build_body(
     parts.append(("(eToro /market-data/rates every 5s, batched all symbols)\n", ""))
     parts.append(("\nWhat is daily-refreshed\n", "bold cyan"))
     parts.append(
-        ("  Fundamentals (PET, PEF, Upside, Buy %, Signal) come from etorotrade's\n", "dim")
+        ("  Fundamentals (PET, PEF, Upside, Buy %, ΔBuy, Signal) come from etorotrade's\n", "dim")
     )
     parts.append(
         ("  CSV, regenerated nightly. PIs and Δday's prev_close come from census,\n", "dim")

@@ -7,6 +7,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-11
+
+### Added
+
+- **`ΔBuy` column** — change in analyst Buy % over the past 3 months, sourced
+  from the etorotrade `AM` (Analyst Momentum) column. Rendered between Buy %
+  and PIs with magnitude-coded glyphs: ▲ for upgrades, ▼ for downgrades, dim
+  `0` when sub-threshold (|Δ| < 1pp), `—` when missing. Color follows the
+  Bloomberg 3-tier convention used by Δday/Profit: bold bright when |Δ| ≥ 5pp,
+  normal when |Δ| ≥ 1pp, dim otherwise. Symmetric on positive/negative.
+  Column count: 14.
+- **`Position.analyst_momentum`** — new optional float field on the Position
+  dataclass, plumbed through `_overlay_fields()` so both initial build
+  (`_to_position`) and overlay refresh (`_tick_overlays`) propagate it
+  consistently. `signals.SignalsReader` parses the `AM` cell from `etoro.csv`
+  and surfaces it via `Fundamentals`.
+
 ## [0.3.0] — 2026-05-11
 
 ### Added
