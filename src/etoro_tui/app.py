@@ -23,6 +23,7 @@ from .clients.etoro import (
     EtoroTransientError,
 )
 from .clients.signals import Fundamentals, SignalsReader
+from .clients.yahoo import YahooClient
 from .models import (
     AccountSummary,
     AppState,
@@ -113,6 +114,7 @@ def _build_indices(
     rates: dict[int, dict],
     instruments: dict[int, InstrumentInfo],
     pairs: list[tuple[str, int]],
+    yahoo_prev: dict[str, float],
 ) -> tuple[IndexSummary, ...]:
     """Build IndexSummary list using each instrument's native quote currency.
 
@@ -127,8 +129,11 @@ def _build_indices(
     P&L consistency. The side panel mirrors the market quote; the portfolio
     mirrors the position value.
 
-    live = lastExecution           (instrument's listing currency)
-    prev = census currentPrice     (same listing currency)
+    live = lastExecution            (instrument's listing currency)
+    prev = yahoo_prev[sym] preferred (Yahoo's real previous-session close);
+           falls back to census `currentPrice` when Yahoo doesn't have it.
+           Census is unreliable as "yesterday's close" (the field can be
+           multi-day stale for some instruments) — see clients/yahoo.py.
     """
     out: list[IndexSummary] = []
     for name, inst_id in pairs:
@@ -142,7 +147,9 @@ def _build_indices(
             continue
         if live <= 0:
             continue
-        prev = float(info.current_price) if info.current_price else 0.0
+        prev = yahoo_prev.get(info.symbol.upper(), 0.0)
+        if prev <= 0:
+            prev = float(info.current_price) if info.current_price else 0.0
         change_pct = ((live - prev) / prev * 100) if prev > 0 else 0.0
         out.append(IndexSummary(name=name, last=live, change_pct=change_pct))
     return tuple(out)
@@ -178,6 +185,7 @@ def _to_position(
     fundamentals: dict[str, Fundamentals],
     pi_pct: dict,
     rates: dict[int, dict] | None = None,
+    yahoo_prev: dict[str, float] | None = None,
 ) -> Position | None:
     """Build a Position from a raw eToro position record.
 
@@ -198,6 +206,11 @@ def _to_position(
     FX) when available — most accurate. Fall back to per-position OCR only
     when both live rates AND census are unavailable (shouldn't happen, but
     keeps the row honest).
+
+    For PREV CLOSE we prefer `yahoo_prev[symbol]` (yfinance — reliable
+    daily close) over census `currentPrice` (multi-day stale for some
+    instruments). Both sources return listing currency, so FX handling is
+    identical. See clients/yahoo.py.
 
     The `amount` field already comes back in USD; verification holds across
     the board: units × openRate × openConversionRate ≈ amount.
@@ -240,11 +253,19 @@ def _to_position(
         current_ocr = open_ocr
         local_now = float(info.current_price) if info.current_price else 0.0
         current_rate = local_now * open_ocr
-    # Yesterday's close (USD), for Δday. Census stores prices in the local
-    # listing currency, so FX it at the same OCR used for current_rate to
-    # keep the Δday calculation pure-price (FX neutralises across both
-    # sides). When live rates fail we fall back to current_ocr=open_ocr.
-    local_prev = float(info.current_price) if info.current_price else None
+    # Yesterday's close (USD), for Δday. Yahoo (when available) is the
+    # trustworthy source; census `currentPrice` is the fallback and can be
+    # multi-day stale for some instruments. Both are in the listing currency,
+    # so we FX at the same OCR used for current_rate to keep the Δday pure
+    # price-move (FX neutralises across both sides). When live rates fail we
+    # fall back to current_ocr=open_ocr.
+    local_prev: float | None = None
+    if yahoo_prev is not None:
+        yp = yahoo_prev.get(sym)
+        if yp is not None and yp > 0:
+            local_prev = yp
+    if local_prev is None and info.current_price:
+        local_prev = float(info.current_price)
     prev_close = local_prev * current_ocr if local_prev else None
     is_buy = bool(raw["isBuy"])
     direction_sign = 1 if is_buy else -1
@@ -343,6 +364,41 @@ def _account_from(positions: tuple[Position, ...], credit: float) -> AccountSumm
     )
 
 
+def _previous_close_equity(
+    positions: Iterable[Position],
+    cash: float,
+    now: datetime,
+) -> float:
+    """Total equity as of the previous trading day's close — the baseline for
+    today's Δ that matches eToro's daily P&L.
+
+    Mirrors the SPX side-panel approach: per-instrument reference is census
+    `currentPrice` (refreshed daily at ~00:00 UTC, so it IS the previous
+    trading session's close through the whole UTC day).
+
+    Per-position ref_rate:
+      - open_rate if opened today (UTC) — the position didn't exist yesterday,
+        so its contribution to today's delta is the post-open price move only
+      - prev_close otherwise — yesterday's close in USD (same source SPX uses)
+      - current_rate as last resort if prev_close is None — that position
+        contributes 0 to the delta (conservative)
+
+    Cash is added unchanged. Same-day deposits/withdrawals cancel out
+    between equity_now and this baseline → delta is pure price movement.
+    """
+    today_utc = now.astimezone(UTC).date()
+    total = cash
+    for p in positions:
+        if p.open_ts.astimezone(UTC).date() == today_utc:
+            ref = p.open_rate
+        elif p.prev_close is not None:
+            ref = p.prev_close
+        else:
+            ref = p.current_rate
+        total += p.units * ref
+    return total
+
+
 class EtoroTuiApp(App[None]):
     """Top-level Textual app."""
 
@@ -378,8 +434,8 @@ class EtoroTuiApp(App[None]):
         self._etoro_client = etoro_client
         self._signals = SignalsReader(config.SIGNALS_CSV)
         self._census = CensusReader(config.CENSUS_GLOB_DIR, config.CENSUS_GLOB_PATTERN)
+        self._yahoo = YahooClient(ttl_seconds=1800)
         self._db: sqlite3.Connection | None = None
-        self._opening_equity_today: float | None = None
 
     # ------- composition -------
 
@@ -391,10 +447,6 @@ class EtoroTuiApp(App[None]):
 
     async def on_mount(self) -> None:
         self._db = storage.init_db(config.SNAPSHOT_DB_PATH)
-        # Bootstrap today's reference equity from snapshot history so the
-        # "today's Δ" doesn't start at 0% every session. We use the oldest
-        # snapshot in the trailing 24h as a proxy for "yesterday's close".
-        self._opening_equity_today = self._bootstrap_today_baseline()
         self._render_state()
         # Demo mode: __main__.py attaches synthetic indices before run().
         if hasattr(self, "_demo_indices"):
@@ -464,10 +516,21 @@ class EtoroTuiApp(App[None]):
         fundamentals = self._signals.fundamentals()
         pi_pct = self._census.read()
 
+        # Yahoo previous-closes for everything we hold + the indices. Yahoo
+        # is the trustworthy daily-close source; census `currentPrice` is
+        # multi-day stale for some instruments and would give the wrong Δday
+        # against eToro web. Silent fallback to census on miss/failure.
+        all_syms = sorted({instruments[iid].symbol for iid in unique_ids if iid in instruments})
+        yahoo_prev: dict[str, float] = {}
+        try:
+            yahoo_prev = await self._yahoo.fetch_prev_closes(all_syms)
+        except Exception as e:  # noqa: BLE001 — yfinance throws diverse exceptions
+            log.warning("yahoo fetch failed, using census fallback: %s", e)
+
         positions_list: list[Position] = []
         skipped = 0
         for raw in raw_positions:
-            built = _to_position(raw, instruments, fundamentals, pi_pct, rates)
+            built = _to_position(raw, instruments, fundamentals, pi_pct, rates, yahoo_prev)
             if built is None:
                 skipped += 1
             else:
@@ -480,10 +543,6 @@ class EtoroTuiApp(App[None]):
         positions = _aggregate_by_symbol(positions_list)
 
         acct = _account_from(positions, credit)
-        # If snapshot DB had no history at startup, use first live equity as a
-        # last-resort baseline. Subsequent sessions will pick up from snapshots.
-        if self._opening_equity_today is None:
-            self._opening_equity_today = acct.equity
 
         spark = ()
         if self._db is not None:
@@ -495,7 +554,7 @@ class EtoroTuiApp(App[None]):
         # Indices (live levels) feed the header bar. Actions / dossier panel
         # were removed because they depended on local-only data sources
         # (etorotrade signals + census PIs) that other users won't have.
-        indices = _build_indices(rates, instruments, index_pairs)
+        indices = _build_indices(rates, instruments, index_pairs, yahoo_prev)
         self.query_one(Header).indices = indices
 
         # Status reflects rates-fetch outcome too: live only when prices
@@ -514,8 +573,9 @@ class EtoroTuiApp(App[None]):
     def _tick_overlays(self) -> None:
         # Re-attach current overlay values without re-fetching from eToro.
         # prev_close is intentionally NOT refreshed here — it requires the
-        # current FX from live rates (only available in _tick_etoro). It will
-        # update on the next _tick_etoro cycle (every 5s).
+        # current FX from live rates AND the Yahoo prev-close fetch (both only
+        # happen in _tick_etoro). It will update on the next _tick_etoro cycle
+        # (every 5s).
         if self._state.account is None:
             return
         fundamentals = self._signals.fundamentals()
@@ -562,9 +622,14 @@ class EtoroTuiApp(App[None]):
         equity_now = self._state.account.equity if self._state.account else 0.0
         if self._state.account is not None:
             header.open_pnl = self._state.account.unrealized
-            if self._opening_equity_today is not None:
-                delta = self._state.account.equity - self._opening_equity_today
-                pct = delta / self._opening_equity_today * 100 if self._opening_equity_today else 0
+            baseline = _previous_close_equity(
+                self._state.positions,
+                self._state.account.cash,
+                datetime.now(UTC),
+            )
+            if baseline > 0:
+                delta = self._state.account.equity - baseline
+                pct = delta / baseline * 100
                 header.today_delta = (delta, pct)
                 header.today_baseline_known = True
             else:
@@ -575,22 +640,6 @@ class EtoroTuiApp(App[None]):
         table.positions = self._state.positions
         footer = self.query_one(Footer)
         footer.last_error = self._state.last_error
-
-    def _bootstrap_today_baseline(self) -> float | None:
-        """Return a 'reference equity' for today's Δ from snapshot history.
-
-        Strategy: oldest snapshot in the trailing 24h. This approximates
-        'yesterday's close' continuously and survives sessions. Returns None
-        if there's no snapshot history yet (first run).
-        """
-        if self._db is None:
-            return None
-        row = self._db.execute(
-            "SELECT equity FROM equity_snapshots "
-            "WHERE ts > datetime('now', '-24 hours') "
-            "ORDER BY ts ASC LIMIT 1"
-        ).fetchone()
-        return float(row[0]) if row else None
 
     def _set_error(self, msg: str, status: Status) -> None:
         self._state = AppState(
