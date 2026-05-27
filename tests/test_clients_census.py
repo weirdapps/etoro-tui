@@ -78,3 +78,62 @@ def test_instruments_and_pi_share_a_single_parse(tmp_census_dir: Path):
     inst_first = r.instruments()
     inst_second = r.instruments()
     assert inst_first is inst_second  # cache identity proves no re-parse
+
+
+def test_malformed_json_serves_stale_cache_when_present(tmp_census_dir: Path):
+    """A newer file caught mid-write shouldn't crash — keep serving the previous cache."""
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")
+    first = r.read()
+    assert first  # populated from fixture's good file
+
+    bad = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    bad.write_text('{"instruments": {"details": [{"instrumentId": 1001, "symbol')
+
+    second = r.read()
+    assert second == first
+    assert r.is_stale is True
+
+
+def test_malformed_json_with_no_prior_cache_returns_empty(tmp_path: Path):
+    """First-ever read of a broken file: no cache, no crash, empty result, not stale."""
+    d = tmp_path / "census"
+    d.mkdir()
+    (d / "etoro-data-2026-05-05-03-00.json").write_text('{"investors": [trunc')
+    r = CensusReader(d, "etoro-data-*.json")
+    assert r.read() == {}
+    assert r.is_stale is False
+
+
+def test_recovery_clears_stale_flag(tmp_census_dir: Path):
+    """Bad file → good newer file: stale flag flips back to False on successful parse."""
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")
+    r.read()  # cache from fixture (05-04)
+
+    bad = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    bad.write_text('{"broken')
+    r.read()
+    assert r.is_stale is True
+
+    good = tmp_census_dir / "etoro-data-2026-05-06-03-00.json"
+    good.write_text(json.dumps({
+        "instruments": {
+            "details": [{"instrumentId": 1001, "symbolFull": "AAPL"}],
+            "priceData": [{"instrumentId": 1001, "currentPrice": 300.0}],
+        },
+        "investors": [{"portfolio": {"positions": [{"instrumentId": 1001}]}}],
+    }))
+    assert r.read() == {"AAPL": 100.0}
+    assert r.is_stale is False
+
+
+def test_missing_required_key_falls_back_to_cache(tmp_census_dir: Path):
+    """A well-formed-but-incomplete JSON file is treated the same as a parse error."""
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")
+    first = r.read()
+
+    bad = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    bad.write_text('{"instruments": {"details": []}}')  # missing priceData + investors
+
+    second = r.read()
+    assert second == first
+    assert r.is_stale is True

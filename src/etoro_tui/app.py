@@ -567,7 +567,9 @@ class EtoroTuiApp(App[None]):
             status=status,
             equity_sparkline=spark,
         )
-        self.query_one(Footer).prices_source = "live" if prices_live else "census"
+        footer = self.query_one(Footer)
+        footer.prices_source = "live" if prices_live else "census"
+        footer.census_stale = self._census.is_stale
         self._render_state()
 
     def _tick_overlays(self) -> None:

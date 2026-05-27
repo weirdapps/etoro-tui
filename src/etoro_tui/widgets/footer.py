@@ -37,12 +37,14 @@ class Footer(Vertical):
     last_error: reactive[str | None] = reactive(None)
     sort_label: reactive[str] = reactive("Value ↓")
     prices_source: reactive[str] = reactive("—")  # "live" | "census" | "—"
+    census_stale: reactive[bool] = reactive(False)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="footer-bar"):
             yield Static(_legend(), id="footer-legend")
             yield Static("", id="footer-sort")
             yield Static("", id="footer-prices")
+            yield Static("", id="footer-census")
             yield Static("", id="footer-fetch")
         yield Static("", id="footer-error")
 
@@ -50,6 +52,7 @@ class Footer(Vertical):
         # Render initial labels so the footer isn't half-empty on launch.
         self.watch_sort_label(self.sort_label)
         self.watch_prices_source(self.prices_source)
+        self.watch_census_stale(self.census_stale)
 
     def watch_last_fetch(self, value: datetime | None) -> None:
         widget = self.query_one("#footer-fetch", Static)
@@ -75,6 +78,16 @@ class Footer(Vertical):
         else:
             label = Text.assemble(("prices  ", "dim"), (value, "dim"))
         self.query_one("#footer-prices", Static).update(label)
+
+    def watch_census_stale(self, value: bool) -> None:
+        # Invisible when fresh — no footer noise during normal operation. Yellow
+        # 'census stale' when the latest archive file failed to parse and we're
+        # serving the previous cache (typically a ~1s race with the daily writer).
+        widget = self.query_one("#footer-census", Static)
+        if value:
+            widget.update(Text.assemble(("census  ", "dim"), ("● stale", "yellow")))
+        else:
+            widget.update("")
 
     def watch_last_error(self, value: str | None) -> None:
         widget = self.query_one("#footer-error", Static)

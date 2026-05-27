@@ -46,6 +46,17 @@ class CensusReader:
         self._cache_instruments: dict[int, InstrumentInfo] = {}
         self._cache_key: tuple[Path, float] | None = None
         self._missing_logged = False
+        self._stale = False
+
+    @property
+    def is_stale(self) -> bool:
+        """True iff the latest refresh attempt failed and we're serving older cache.
+
+        The census writer rewrites its 80+ MB JSON file in place, non-atomically,
+        so ticks that land mid-rewrite see partial data. We keep the previous
+        cache and flip this flag so the UI can show a 'census stale' indicator.
+        """
+        return self._stale
 
     def _newest_file(self) -> Path | None:
         # Local first.
@@ -68,6 +79,7 @@ class CensusReader:
         mtime = newest.stat().st_mtime
         cache_key = (newest, mtime)
         if self._cache_key == cache_key:
+            self._stale = False
             return True
         try:
             with newest.open() as f:
@@ -75,9 +87,16 @@ class CensusReader:
             details = data["instruments"]["details"]
             price_data = data["instruments"]["priceData"]
             investors = data["investors"]
-        except KeyError as e:
-            log.error("census schema mismatch in %s: missing key %s", newest, e)
-            raise
+        except (json.JSONDecodeError, KeyError, OSError) as e:
+            if self._cache_key is not None:
+                log.warning(
+                    "census refresh failed (%s); serving previous cache from %s",
+                    e, self._cache_key[0].name,
+                )
+                self._stale = True
+                return True
+            log.warning("census refresh failed and no cache to fall back on: %s", e)
+            return False
 
         # Build instruments map (id → symbol + current price)
         id_to_symbol = {item["instrumentId"]: item["symbolFull"] for item in details}
@@ -106,6 +125,7 @@ class CensusReader:
             self._cache_pi = pi_pct
 
         self._cache_key = cache_key
+        self._stale = False
         return True
 
     def read(self) -> dict[str, float]:
