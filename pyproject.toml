@@ -28,6 +28,9 @@ dependencies = [
     "textual>=0.86",
     "httpx>=0.28",
     "yfinance>=0.2.40,<0.3",
+    # Cross-platform credential storage (macOS Keychain, Windows Credential
+    # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
+    "keyring>=24",
 ]
 
 [project.optional-dependencies]
@@ -37,10 +40,6 @@ dev = [
     "respx>=0.21",
     "ruff>=0.7",
 ]
-# Cross-platform credential storage (macOS Keychain, Windows Credential
-# Manager, Linux Secret Service). Optional so we don't force the system
-# deps (dbus on Linux) on users who prefer the .env file.
-keyring = ["keyring>=24"]
 
 [project.scripts]
 etoro-tui = "etoro_tui.__main__:main"
