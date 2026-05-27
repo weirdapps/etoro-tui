@@ -91,7 +91,8 @@ class CensusReader:
             if self._cache_key is not None:
                 log.warning(
                     "census refresh failed (%s); serving previous cache from %s",
-                    e, self._cache_key[0].name,
+                    e,
+                    self._cache_key[0].name,
                 )
                 self._stale = True
                 return True

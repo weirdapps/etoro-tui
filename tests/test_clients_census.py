@@ -115,13 +115,17 @@ def test_recovery_clears_stale_flag(tmp_census_dir: Path):
     assert r.is_stale is True
 
     good = tmp_census_dir / "etoro-data-2026-05-06-03-00.json"
-    good.write_text(json.dumps({
-        "instruments": {
-            "details": [{"instrumentId": 1001, "symbolFull": "AAPL"}],
-            "priceData": [{"instrumentId": 1001, "currentPrice": 300.0}],
-        },
-        "investors": [{"portfolio": {"positions": [{"instrumentId": 1001}]}}],
-    }))
+    good.write_text(
+        json.dumps(
+            {
+                "instruments": {
+                    "details": [{"instrumentId": 1001, "symbolFull": "AAPL"}],
+                    "priceData": [{"instrumentId": 1001, "currentPrice": 300.0}],
+                },
+                "investors": [{"portfolio": {"positions": [{"instrumentId": 1001}]}}],
+            }
+        )
+    )
     assert r.read() == {"AAPL": 100.0}
     assert r.is_stale is False
 
