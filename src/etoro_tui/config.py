@@ -75,13 +75,17 @@ CENSUS_GITHUB_REPO = "weirdapps/etoro_census"  # <owner>/<repo>
 CENSUS_GITHUB_BRANCH = "data-archive"
 CENSUS_GITHUB_PATH = "data"  # path within the branch
 
-# Default indices for the side panel. Override via TOML [indices].list.
+# Default indices for the header bar, in priority order — the bar auto-fits as
+# many as the terminal width allows, always keeping the first three. Each code
+# must have a Yahoo index mapping in clients.yahoo._INDEX_TO_YAHOO (indices are
+# priced from Yahoo, not the census). Override via TOML [indices].list.
 DEFAULT_INDICES: tuple[tuple[str, str], ...] = (
     ("S&P 500", "SPX500"),
-    ("NASDAQ", "NSDQ100"),
     ("Dow 30", "DJ30"),
+    ("NASDAQ", "NSDQ100"),
+    ("DAX", "GER40"),
+    ("FTSE 100", "UK100"),
     ("EuroStx50", "EUSTX50"),
-    ("Greek ETF", "LYXGRE.DE"),
 )
 
 
@@ -113,6 +117,19 @@ def _toml(*keys: str, default: Any = None) -> Any:
             return default
         node = node[k]
     return node
+
+
+def get_instrument_overrides() -> dict[int, str]:
+    """User-configurable instrument→symbol map from TOML [instruments].map.
+
+    For instruments not in census (newly listed or unpopular), the user can
+    add entries like `14710 = "9201.T"` so the position renders with the
+    correct ticker, Yahoo prev-close, and signals coverage.
+    """
+    raw = _toml("instruments", "map", default=None)
+    if not isinstance(raw, dict):
+        return {}
+    return {int(k): str(v) for k, v in raw.items()}
 
 
 def get_indices() -> tuple[tuple[str, str], ...]:

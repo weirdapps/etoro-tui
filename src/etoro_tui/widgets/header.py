@@ -5,14 +5,17 @@
 Two-section layout: portfolio data + indices on the LEFT (packs flush left),
 clock + status dot anchored to the RIGHT edge. Sections separated by
 generous whitespace instead of │ characters — cleaner for scanning.
-Indices are FX-converted to USD upstream so they match what the table shows.
+Indices are priced from Yahoo in their native index points (S&P/Dow/etc.) and
+auto-fit to the bar width — as many as fit, always keeping the first few.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from rich.text import Text
+from textual import events
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.reactive import reactive
@@ -109,6 +112,28 @@ def _mini_sparkline(values: tuple[float, ...], width: int = 8) -> Text:
     return Text(bars, style=color)
 
 
+def _fit_indices(
+    indices: Sequence[IndexSummary], budget: int, minimum: int = 3
+) -> tuple[IndexSummary, ...]:
+    """Greedily pack indices (each prefixed by a gap) into ``budget`` cells.
+
+    The first ``minimum`` are always kept: losing S&P/Dow because the terminal
+    is a few columns short is worse than a touch of overflow. Beyond that, an
+    index is added only while its rendered width still fits the budget — so a
+    wide terminal shows more indices and a narrow one shows fewer, with no
+    hard-coded cap.
+    """
+    out = list(indices[:minimum])
+    used = sum(_GAP.cell_len + _index_text(ix).cell_len for ix in out)
+    for ix in indices[minimum:]:
+        width = _GAP.cell_len + _index_text(ix).cell_len
+        if used + width > budget:
+            break
+        used += width
+        out.append(ix)
+    return tuple(out)
+
+
 class Header(Horizontal):
     """Single-row Bloomberg-style header. One Static, assembled with │ separators."""
 
@@ -153,7 +178,7 @@ class Header(Horizontal):
         if not self.is_mounted:
             return
         a = self.account
-        # ---- LEFT: portfolio data + up to 3 indices ----
+        # ---- portfolio summary (always shown, flush left) ----
         equity = _equity(a.equity) if a else Text("$ —", style="dim")
         if self.today_baseline_known:
             _, pct = self.today_delta
@@ -164,27 +189,30 @@ class Header(Horizontal):
         pnl = _open_pnl(self.open_pnl)
         spark = _mini_sparkline(self.sparkline_values, width=8)
 
-        parts: list[Text] = [
-            equity,
-            Text(" "),
-            delta,
-            _GAP,
-            cash,
-            _GAP,
-            pnl,
-            _GAP,
-            spark,
-        ]
-        # Up to 3 indices in the header — keeps the bar from overflowing on
-        # narrower terminals (cap is conservative; a 5th would push clock off
-        # the right edge).
-        for ix in self.indices[:3]:
-            parts.append(_GAP)
-            parts.append(_index_text(ix))
-        self.query_one("#hdr-left", Static).update(Text.assemble(*parts))
+        base = Text.assemble(equity, Text(" "), delta, _GAP, cash, _GAP, pnl, _GAP, spark)
 
         # ---- RIGHT: clock + status dot (separated by a single space) ----
         clock = Text(datetime.now().astimezone().strftime("%H:%M %Z"), style="dim")
         dot = _STATUS_DOT[self.status]
         right = Text.assemble(clock, Text("  "), dot)
+
+        # ---- indices: pack as many as fit between the summary and the clock ----
+        # Budget = header width − summary − clock − paddings. Both Statics carry
+        # `padding: 0 1` (2 cells each); a small extra margin keeps the left
+        # section from colliding with the right-anchored clock. When the width
+        # isn't known yet (pre-layout), budget ≤ 0 and _fit_indices falls back
+        # to its minimum (the first 3) so S&P/Dow are never dropped.
+        total = self.size.width
+        budget = (total - base.cell_len - right.cell_len - 6) if total else 0
+        idx_parts: list[Text] = []
+        for ix in _fit_indices(self.indices, max(budget, 0)):
+            idx_parts.append(_GAP)
+            idx_parts.append(_index_text(ix))
+
+        self.query_one("#hdr-left", Static).update(Text.assemble(base, *idx_parts))
         self.query_one("#hdr-right", Static).update(right)
+
+    def on_resize(self, _: events.Resize) -> None:
+        # Re-pack indices to the new width (more fit when widened, fewer when
+        # shrunk).
+        self._repaint()

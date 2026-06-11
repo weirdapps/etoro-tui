@@ -220,10 +220,13 @@ def build_demo_state() -> AppState:
 
 
 def build_demo_indices() -> tuple[IndexSummary, ...]:
+    # Mirrors config.DEFAULT_INDICES (US + Europe). The header auto-fits as many
+    # as the terminal width allows, always keeping the first three.
     return (
         IndexSummary(name="S&P 500", last=5_432.10, change_pct=0.34),
-        IndexSummary(name="NASDAQ", last=17_234.52, change_pct=0.45),
         IndexSummary(name="Dow 30", last=40_123.45, change_pct=-0.21),
+        IndexSummary(name="NASDAQ", last=17_234.52, change_pct=0.45),
+        IndexSummary(name="DAX", last=18_412.30, change_pct=0.27),
+        IndexSummary(name="FTSE 100", last=8_204.55, change_pct=0.11),
         IndexSummary(name="EuroStx50", last=5_017.83, change_pct=0.18),
-        IndexSummary(name="Greek ETF", last=2.44, change_pct=1.58),
     )

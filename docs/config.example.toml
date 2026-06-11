@@ -2,19 +2,22 @@
 # Every section is optional; missing keys fall back to baked-in defaults.
 
 # -- Indices shown in the header bar ----------------------------------------
-# Each entry is [display_name, eToro_symbol_or_CFD_code]. The first 3 entries
-# fit in the header (header width-permitting). Order = priority.
-# eToro CFD indices (SPX500, NSDQ100, DJ30, EUSTX50, GER40, FRA40, UK100,
-# JPN225, HKG50) give actual index levels. Use ETF tickers (SPY, QQQ, EZU,
-# LYXGRE.DE) when no native index is exposed.
+# Each entry is [display_name, eToro_symbol_code]. Order = priority: the bar
+# auto-fits as many as the terminal width allows and always keeps the first
+# three, so put the indices you care most about first.
+# Indices are priced from Yahoo Finance, so each code must be one the client
+# knows how to map to a Yahoo index ticker (clients/yahoo.py _INDEX_TO_YAHOO):
+#   SPX500 (S&P 500), DJ30 (Dow), NSDQ100 (Nasdaq 100), GER40 (DAX),
+#   UK100 (FTSE 100), FRA40 (CAC 40), EUSTX50 (EuroStoxx 50),
+#   JPN225 (Nikkei 225), HKG50 (Hang Seng).
 [indices]
 list = [
   ["S&P 500",    "SPX500"],
-  ["NASDAQ",     "NSDQ100"],
   ["Dow 30",     "DJ30"],
-  ["EuroStx50",  "EUSTX50"],
+  ["NASDAQ",     "NSDQ100"],
   ["DAX",        "GER40"],
-  ["FTSE",       "UK100"],
+  ["FTSE 100",   "UK100"],
+  ["EuroStx50",  "EUSTX50"],
   ["Nikkei",     "JPN225"],
   ["Hang Seng",  "HKG50"],
 ]
@@ -27,6 +30,14 @@ list = [
 # signals_csv = "~/SourceCode/etorotrade/yahoofinance/output/etoro.csv"
 # census_dir  = "~/SourceCode/etoro_census/archive/data"
 # snapshot_db = "~/.etoro-tui/snapshots.db"
+
+# -- Instrument overrides -----------------------------------------------------
+# Map eToro instrument IDs to Yahoo-compatible tickers for positions that
+# aren't in the census (newly listed, niche, or unpopular instruments).
+# Find the instrument ID in the logs: "skipped N positions (instrumentID not
+# in census)" and look up the raw position's instrumentID in the eToro API.
+# [instruments.map]
+# 14710 = "9201.T"   # Japan Airlines
 
 # -- Refresh cadences (seconds) — usually no need to override ---------------
 # [intervals]

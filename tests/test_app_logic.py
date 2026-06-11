@@ -4,7 +4,7 @@ Covers:
   - _overlay_fields: single source of truth for the overlay-kwargs dict
   - _to_position price fallback: live → bid → census, never crashes on None
   - _to_position prev_close: Yahoo overrides stale census, fallback chain
-  - _build_indices: Yahoo overrides census for the header bar
+  - _build_indices: header bar priced from Yahoo, decoupled from census
   - _day_change_pct formatter: percent display, sign, missing-prev fallback
   - _previous_close_equity: baseline for today's Δ that mirrors SPX
 """
@@ -369,54 +369,96 @@ def test_to_position_yahoo_applies_fx_for_non_usd_listing() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _build_indices — Yahoo overrides census for header bar
+# _build_indices — header bar priced from Yahoo, decoupled from census
 # ---------------------------------------------------------------------------
 
 
-def _idx_instruments() -> dict[int, InstrumentInfo]:
-    return {
-        27: InstrumentInfo(symbol="SPX500", current_price=7394.62),
-        28: InstrumentInfo(symbol="NSDQ100", current_price=28976.32),
-    }
-
-
-def test_build_indices_uses_yahoo_prev_when_present() -> None:
-    """Daily % computed from Yahoo prev close, not census."""
-    instruments = _idx_instruments()
-    rates = {27: {"lastExecution": 7400.0}}
-    pairs = [("S&P 500", 27)]
-    yahoo_prev = {"SPX500": 7425.75}  # Yahoo's real prev close
-    out = _build_indices(rates, instruments, pairs, yahoo_prev)
+def test_build_indices_computes_change_from_yahoo_last_and_prev() -> None:
+    """change_pct = (last − prev) / prev × 100, both from Yahoo daily bars."""
+    specs = [("S&P 500", "SPX500")]
+    quotes = {"SPX500": (7480.10, 7425.75)}
+    out = _build_indices(specs, quotes)
     assert len(out) == 1
-    # change_pct = (7400 - 7425.75) / 7425.75 * 100 ≈ -0.347%
-    assert out[0].change_pct == pytest.approx((7400.0 - 7425.75) / 7425.75 * 100)
-    assert out[0].last == 7400.0
+    assert out[0].name == "S&P 500"
+    assert out[0].last == 7480.10
+    assert out[0].change_pct == pytest.approx((7480.10 - 7425.75) / 7425.75 * 100)
 
 
-def test_build_indices_falls_back_to_census_when_yahoo_missing() -> None:
-    """Empty yahoo_prev → census `currentPrice` is the baseline (legacy behaviour)."""
-    instruments = _idx_instruments()
-    rates = {27: {"lastExecution": 7400.0}}
-    pairs = [("S&P 500", 27)]
-    out = _build_indices(rates, instruments, pairs, yahoo_prev={})
-    # change_pct = (7400 - 7394.62) / 7394.62 * 100 ≈ +0.073%
-    assert out[0].change_pct == pytest.approx((7400.0 - 7394.62) / 7394.62 * 100)
+def test_build_indices_preserves_spec_priority_order() -> None:
+    """Output order follows the configured spec order (header shows the first
+    N that fit) — not dict/iteration order of the quotes."""
+    specs = [("S&P 500", "SPX500"), ("Dow 30", "DJ30"), ("NASDAQ", "NSDQ100")]
+    quotes = {
+        "NSDQ100": (17234.0, 17100.0),
+        "SPX500": (7480.0, 7400.0),
+        "DJ30": (40050.0, 40123.0),
+    }
+    out = _build_indices(specs, quotes)
+    assert [ix.name for ix in out] == ["S&P 500", "Dow 30", "NASDAQ"]
 
 
-def test_build_indices_yahoo_zero_or_negative_ignored() -> None:
-    """Bad Yahoo data (0/negative) → fall back to census."""
-    instruments = _idx_instruments()
-    rates = {27: {"lastExecution": 7400.0}}
-    pairs = [("S&P 500", 27)]
-    out = _build_indices(rates, instruments, pairs, yahoo_prev={"SPX500": 0.0})
-    # Should use census (7394.62), NOT 0 (which would div-by-zero)
-    assert out[0].change_pct == pytest.approx((7400.0 - 7394.62) / 7394.62 * 100)
+def test_build_indices_skips_symbols_yahoo_lacks() -> None:
+    """An index Yahoo has no quote for is omitted — never rendered with a zero.
+    This is the regression: S&P/Dow must not vanish just because they're absent
+    from the census, but a genuinely unresolvable symbol still drops cleanly."""
+    specs = [("S&P 500", "SPX500"), ("Greek ETF", "LYXGRE.DE")]
+    quotes = {"SPX500": (7480.0, 7400.0)}  # LYXGRE.DE delisted on Yahoo
+    out = _build_indices(specs, quotes)
+    assert [ix.name for ix in out] == ["S&P 500"]
 
 
-def test_build_indices_zero_live_excluded() -> None:
-    """Live price <= 0 → index omitted from output (preserves existing edge-case)."""
-    instruments = _idx_instruments()
-    rates = {27: {"lastExecution": 0.0}}
-    pairs = [("S&P 500", 27)]
-    out = _build_indices(rates, instruments, pairs, yahoo_prev={"SPX500": 7425.75})
-    assert out == ()
+def test_build_indices_case_insensitive_symbol_lookup() -> None:
+    """Config symbols resolve against the (upper-cased) quote keys regardless of case."""
+    specs = [("S&P 500", "spx500")]
+    out = _build_indices(specs, {"SPX500": (7480.0, 7400.0)})
+    assert len(out) == 1
+    assert out[0].name == "S&P 500"
+
+
+def test_build_indices_zero_prev_is_zero_pct_not_crash() -> None:
+    """prev <= 0 (single-bar fallback edge) → 0% change, no divide-by-zero."""
+    specs = [("S&P 500", "SPX500")]
+    out = _build_indices(specs, {"SPX500": (7480.0, 0.0)})
+    assert out[0].change_pct == 0.0
+
+
+def test_build_indices_empty() -> None:
+    assert _build_indices([], {}) == ()
+
+
+# ---------------------------------------------------------------------------
+# _to_position with census-missing instruments
+# ---------------------------------------------------------------------------
+
+
+def test_to_position_census_missing_with_live_rates() -> None:
+    """Instrument not in census but live rates available → rendered with placeholder symbol."""
+    raw = _raw(inst_id=14710)
+    rates = {14710: {"lastExecution": 2850.0, "conversionRateAsk": 0.0065}}
+    p = _to_position(raw, {}, {}, {}, rates)
+    assert p is not None
+    assert p.symbol == "#14710"
+    assert p.current_rate == pytest.approx(2850.0 * 0.0065)
+    assert p.prev_close is None
+
+
+def test_to_position_census_missing_with_config_override() -> None:
+    """Instrument not in census but user mapped via [instruments.map] → gets real symbol."""
+    raw = _raw(inst_id=14710)
+    rates = {14710: {"lastExecution": 2850.0, "conversionRateAsk": 0.0065}}
+    yahoo_prev = {"9201.T": 2800.0}
+    overrides = {14710: "9201.T"}
+    p = _to_position(raw, {}, {}, {}, rates, yahoo_prev, overrides)
+    assert p is not None
+    assert p.symbol == "9201.T"
+    assert p.prev_close == pytest.approx(2800.0 * 0.0065)
+
+
+def test_to_position_census_missing_no_rates_uses_open() -> None:
+    """No census AND no live rates → uses open_rate as fallback."""
+    raw = _raw(inst_id=14710, open_rate=2900.0)
+    p = _to_position(raw, {}, {}, {}, None)
+    assert p is not None
+    assert p.symbol == "#14710"
+    assert p.current_rate == pytest.approx(2900.0)
+    assert p.pnl == 0.0

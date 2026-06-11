@@ -38,11 +38,13 @@ class Footer(Vertical):
     sort_label: reactive[str] = reactive("Value ↓")
     prices_source: reactive[str] = reactive("—")  # "live" | "census" | "—"
     census_stale: reactive[bool] = reactive(False)
+    asset_count: reactive[int] = reactive(0)  # distinct instruments held (not lots)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="footer-bar"):
             yield Static(_legend(), id="footer-legend")
             yield Static("", id="footer-sort")
+            yield Static("", id="footer-assets")
             yield Static("", id="footer-prices")
             yield Static("", id="footer-census")
             yield Static("", id="footer-fetch")
@@ -53,6 +55,7 @@ class Footer(Vertical):
         self.watch_sort_label(self.sort_label)
         self.watch_prices_source(self.prices_source)
         self.watch_census_stale(self.census_stale)
+        self.watch_asset_count(self.asset_count)
 
     def watch_last_fetch(self, value: datetime | None) -> None:
         widget = self.query_one("#footer-fetch", Static)
@@ -67,6 +70,14 @@ class Footer(Vertical):
         # legend already has "[s] sort").
         self.query_one("#footer-sort", Static).update(
             Text.assemble(("by  ", "dim"), (value, "bold"))
+        )
+
+    def watch_asset_count(self, value: int) -> None:
+        # Count of distinct instruments held (table rows), not eToro lots — the
+        # per-row "Pos" column already shows lot counts.
+        noun = "asset" if value == 1 else "assets"
+        self.query_one("#footer-assets", Static).update(
+            Text.assemble((f"{value}", "bold"), (f" {noun}", "dim"))
         )
 
     def watch_prices_source(self, value: str) -> None:
