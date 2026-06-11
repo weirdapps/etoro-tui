@@ -49,6 +49,46 @@ async def test_app_boots_with_injected_state():
 
 
 @pytest.mark.asyncio
+async def test_footer_shows_asset_count_not_lot_count():
+    """The footer reports distinct instruments (one row per symbol), NOT eToro
+    lots. A 2-symbol portfolio where AAPL aggregates 3 lots still reads
+    '2 assets'."""
+
+    def _pos(symbol: str, lots: int, pid: int) -> Position:
+        return Position(
+            position_id=pid,
+            symbol=symbol,
+            direction="Buy",
+            units=10.0,
+            open_rate=150.0,
+            current_rate=160.0,
+            value=1600.0,
+            pnl=100.0,
+            pnl_pct=6.67,
+            open_ts=datetime(2026, 1, 1, tzinfo=UTC),
+            position_count=lots,
+        )
+
+    state = AppState(
+        account=AccountSummary(
+            equity=50000.0,
+            cash=10000.0,
+            unrealized=500.0,
+            realized=1500.0,
+            fetched_at=datetime.now(UTC),
+        ),
+        positions=(_pos("AAPL", lots=3, pid=1), _pos("MSFT", lots=1, pid=2)),
+        last_error=None,
+        status="live",
+        equity_sparkline=(),
+    )
+    app = EtoroTuiApp(initial_state=state, disable_polling=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "2 assets" in str(app.query_one("#footer-assets").render())
+
+
+@pytest.mark.asyncio
 async def test_quit_key_exits_cleanly():
     app = EtoroTuiApp(initial_state=_make_state(), disable_polling=True)
     async with app.run_test() as pilot:

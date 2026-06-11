@@ -37,6 +37,11 @@ _INDEX_TO_YAHOO: dict[str, str] = {
     "NSDQ100": "^NDX",
     "DJ30": "^DJI",
     "EUSTX50": "^STOXX50E",
+    "GER40": "^GDAXI",  # DAX
+    "UK100": "^FTSE",  # FTSE 100
+    "FRA40": "^FCHI",  # CAC 40
+    "JPN225": "^N225",  # Nikkei 225
+    "HKG50": "^HSI",  # Hang Seng
 }
 
 # eToro crypto symbols are bare bases (BTC, ETH, …); Yahoo uses BTC-USD form.
@@ -77,13 +82,41 @@ def _extract_prev_close(df: pd.DataFrame, yahoo_sym: str) -> float | None:
     return float(val)
 
 
+def _extract_last_two(df: pd.DataFrame, yahoo_sym: str) -> tuple[float, float] | None:
+    """Return (last, prev) daily closes for an index — last bar ≈ today's live
+    level, the one before it = previous session's close. NaNs are dropped first
+    so a pre-market/holiday gap shows the prior move instead of blanking the
+    index. With only one valid close, prev = last (renders at 0% rather than
+    vanishing). Returns None when there's no usable close at all."""
+    try:
+        if isinstance(df.columns, pd.MultiIndex):
+            closes = df[(yahoo_sym, "Close")]
+        else:
+            closes = df["Close"]
+    except KeyError:
+        return None
+    closes = closes.dropna()
+    if len(closes) == 0:
+        return None
+    last = float(closes.iloc[-1])
+    if last <= 0:
+        return None
+    prev = float(closes.iloc[-2]) if len(closes) >= 2 else last
+    return last, prev
+
+
 class YahooClient:
     """Async wrapper around yfinance with a TTL cache."""
 
-    def __init__(self, ttl_seconds: int = 1800) -> None:
+    def __init__(self, ttl_seconds: int = 1800, index_ttl_seconds: int = 120) -> None:
         self._ttl = ttl_seconds
+        # Indices move intraday, so they get a shorter TTL than position
+        # prev-closes (which are stable through the trading day).
+        self._index_ttl = index_ttl_seconds
         # etoro_symbol → (prev_close, fetched_at_epoch)
         self._cache: dict[str, tuple[float, float]] = {}
+        # etoro_symbol(upper) → ((last, prev), fetched_at_epoch)
+        self._index_cache: dict[str, tuple[tuple[float, float], float]] = {}
 
     async def fetch_prev_closes(self, symbols: list[str]) -> dict[str, float]:
         """Return {etoro_symbol: previous_close_in_listing_currency}.
@@ -116,6 +149,42 @@ class YahooClient:
             if val is not None and val > 0:
                 self._cache[es] = (val, now)
                 out[es] = val
+        return out
+
+    async def fetch_index_quotes(self, etoro_symbols: list[str]) -> dict[str, tuple[float, float]]:
+        """Return {etoro_symbol_upper: (last, prev_close)} for header indices.
+
+        Both values come straight from Yahoo's daily bars, decoupled from the
+        eToro census — so standard market indices (S&P, Dow, …) always render
+        regardless of whether a popular investor happens to hold a CFD on them.
+        Symbols Yahoo can't resolve are silently omitted. Cached per symbol for
+        index_ttl_seconds so the 5s header poll doesn't hammer Yahoo."""
+        now = time.monotonic()
+        out: dict[str, tuple[float, float]] = {}
+        needed: dict[str, str] = {}  # yahoo_sym → etoro_sym(upper)
+        for es in etoro_symbols:
+            key = es.upper()
+            cached = self._index_cache.get(key)
+            if cached and now - cached[1] < self._index_ttl:
+                out[key] = cached[0]
+                continue
+            ys = to_yahoo_symbol(key)
+            if ys is not None:
+                needed[ys] = key
+        if not needed:
+            return out
+        try:
+            df = await asyncio.to_thread(self._download, list(needed))
+        except Exception as e:  # noqa: BLE001 — yfinance raises diverse types
+            log.warning("yfinance index download failed: %s", e)
+            return out
+        if df is None or df.empty:
+            return out
+        for ys, key in needed.items():
+            pair = _extract_last_two(df, ys)
+            if pair is not None:
+                self._index_cache[key] = (pair, now)
+                out[key] = pair
         return out
 
     def _download(self, yahoo_tickers: list[str]) -> Any:

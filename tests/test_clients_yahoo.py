@@ -35,6 +35,15 @@ def test_to_yahoo_symbol_indices() -> None:
     assert to_yahoo_symbol("EUSTX50") == "^STOXX50E"
 
 
+def test_to_yahoo_symbol_european_and_asian_indices() -> None:
+    """Indices listed in config.example.toml must all map to a Yahoo ticker."""
+    assert to_yahoo_symbol("GER40") == "^GDAXI"  # DAX
+    assert to_yahoo_symbol("UK100") == "^FTSE"  # FTSE 100
+    assert to_yahoo_symbol("FRA40") == "^FCHI"  # CAC 40
+    assert to_yahoo_symbol("JPN225") == "^N225"  # Nikkei 225
+    assert to_yahoo_symbol("HKG50") == "^HSI"  # Hang Seng
+
+
 def test_to_yahoo_symbol_crypto_gets_usd_suffix() -> None:
     assert to_yahoo_symbol("BTC") == "BTC-USD"
     assert to_yahoo_symbol("ETH") == "ETH-USD"
@@ -220,3 +229,76 @@ async def test_fetch_prev_closes_single_ticker_df_shape(fake_download) -> None:
     c = YahooClient()
     out = await c.fetch_prev_closes(["AAPL"])
     assert out == {"AAPL": 298.97}
+
+
+# ---------------------------------------------------------------------------
+# YahooClient.fetch_index_quotes — (last, prev) for the header bar
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_index_quotes_returns_last_and_prev(fake_download) -> None:
+    """Last bar ≈ today's live level; the bar before it = previous close.
+    Keyed by eToro symbol (upper), not the Yahoo ticker."""
+    fake_download.return_value = _multi_ticker_df(
+        {
+            "^GSPC": [7400.0, 7425.75, 7480.10],  # day-before, prev, today-intraday
+            "^DJI": [40000.0, 40123.0, 40050.0],
+        }
+    )
+    c = YahooClient()
+    out = await c.fetch_index_quotes(["SPX500", "DJ30"])
+    assert out == {"SPX500": (7480.10, 7425.75), "DJ30": (40050.0, 40123.0)}
+    # Requests used the mapped Yahoo tickers.
+    assert fake_download.calls == [["^GSPC", "^DJI"]]
+
+
+async def test_fetch_index_quotes_single_bar_prev_equals_last(fake_download) -> None:
+    """Only one valid close (fresh listing / holiday week) → prev = last so the
+    index still renders, at 0% change instead of vanishing."""
+    fake_download.return_value = _multi_ticker_df({"^GSPC": [7500.0]})
+    c = YahooClient()
+    out = await c.fetch_index_quotes(["SPX500"])
+    assert out == {"SPX500": (7500.0, 7500.0)}
+
+
+async def test_fetch_index_quotes_drops_nan_last_bar(fake_download) -> None:
+    """A NaN today-bar (pre-market) falls back to the last two valid closes —
+    the index shows yesterday's move rather than disappearing."""
+    fake_download.return_value = _multi_ticker_df({"^GSPC": [7400.0, 7425.75, math.nan]})
+    c = YahooClient()
+    out = await c.fetch_index_quotes(["SPX500"])
+    assert out == {"SPX500": (7425.75, 7400.0)}
+
+
+async def test_fetch_index_quotes_omits_all_nan(fake_download) -> None:
+    """No valid closes at all → symbol omitted (caller skips it)."""
+    fake_download.return_value = _multi_ticker_df({"^GSPC": [math.nan, math.nan]})
+    c = YahooClient()
+    out = await c.fetch_index_quotes(["SPX500"])
+    assert out == {}
+
+
+async def test_fetch_index_quotes_caches_within_ttl(fake_download) -> None:
+    """Index quotes cache on their own short TTL — header polls every 5s but
+    must not hammer Yahoo on every tick."""
+    fake_download.return_value = _multi_ticker_df({"^GSPC": [7400.0, 7425.75, 7480.10]})
+    c = YahooClient(index_ttl_seconds=120)
+    first = await c.fetch_index_quotes(["SPX500"])
+    second = await c.fetch_index_quotes(["SPX500"])
+    assert first == second == {"SPX500": (7480.10, 7425.75)}
+    assert len(fake_download.calls) == 1
+
+
+async def test_fetch_index_quotes_swallows_exception(fake_download) -> None:
+    """A yfinance failure must not crash the header — return whatever cache has."""
+    fake_download.exc = RuntimeError("Yahoo rate-limited")
+    c = YahooClient()
+    out = await c.fetch_index_quotes(["SPX500"])
+    assert out == {}
+
+
+async def test_fetch_index_quotes_empty_input_short_circuits(fake_download) -> None:
+    c = YahooClient()
+    out = await c.fetch_index_quotes([])
+    assert out == {}
+    assert fake_download.calls == []

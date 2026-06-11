@@ -85,8 +85,22 @@ def test_intervals_are_positive():
 
 
 def test_get_indices_default():
-    """Without a TOML override, the default 5-index list is returned."""
+    """Without a TOML override, the curated default set is returned, led by the
+    three US majors — the two that regressed off the bar (S&P, Dow) plus NASDAQ.
+    The header always shows at least these first three."""
     out = config.get_indices()
-    assert len(out) >= 3
     assert all(isinstance(t, tuple) and len(t) == 2 for t in out)
-    assert ("S&P 500", "SPX500") in out
+    assert [name for name, _ in out[:3]] == ["S&P 500", "Dow 30", "NASDAQ"]
+
+
+def test_default_indices_resolve_to_yahoo_index_tickers():
+    """Every default index code must map to a real Yahoo index ticker (^…).
+
+    Indices are priced from Yahoo, so a code with no Yahoo index mapping would
+    silently vanish from the bar — exactly the regression this guards against.
+    """
+    from etoro_tui.clients.yahoo import _INDEX_TO_YAHOO
+
+    for name, sym in config.DEFAULT_INDICES:
+        assert sym in _INDEX_TO_YAHOO, f"{name} ({sym}) has no Yahoo index mapping"
+        assert _INDEX_TO_YAHOO[sym].startswith("^")

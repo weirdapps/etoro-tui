@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sqlite3
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TypedDict
@@ -98,60 +99,39 @@ def _currency_for(symbol: str, ocr: float) -> str:
     return ""
 
 
-def _resolve_index_ids(instruments: dict[int, InstrumentInfo]) -> list[tuple[str, int]]:
-    """Map the configured display-name list to (display_name, instrumentId)
-    pairs that actually exist in the census. The list comes from the user's
-    TOML config or falls back to a curated default in config.DEFAULT_INDICES."""
-    sym_to_id = {info.symbol.upper(): inst_id for inst_id, info in instruments.items()}
-    return [
-        (name, sym_to_id[sym.upper()])
-        for name, sym in config.get_indices()
-        if sym.upper() in sym_to_id
-    ]
-
-
 def _build_indices(
-    rates: dict[int, dict],
-    instruments: dict[int, InstrumentInfo],
-    pairs: list[tuple[str, int]],
-    yahoo_prev: dict[str, float],
+    specs: Sequence[tuple[str, str]],
+    quotes: dict[str, tuple[float, float]],
 ) -> tuple[IndexSummary, ...]:
-    """Build IndexSummary list using each instrument's native quote currency.
+    """Build the header's index summaries from Yahoo quotes.
 
-    Indices and ETFs are universally quoted in their listing currency
-    (S&P 500 in USD, EuroStx50 in EUR, LYXGRE.DE in EUR). Showing a
-    USD-converted number for a EUR ETF (e.g. $2.96 for LYXGRE.DE which
-    Yahoo / eToro web / the issuer all quote at €2.51) doesn't match any
-    external reference and reads as a wrong price.
+    `specs`  = configured (display_name, eToro_symbol) pairs, in priority order
+               (config.get_indices()).
+    `quotes` = {eToro_symbol_upper: (last, prev_close)} from
+               YahooClient.fetch_index_quotes.
 
-    Trade-off: the same instrument can show a different number in the
-    portfolio table, which stays USD-denominated (account currency) for
-    P&L consistency. The side panel mirrors the market quote; the portfolio
-    mirrors the position value.
+    Indices are priced straight from Yahoo, NOT the eToro popular-investor
+    census. The census only contains instruments PIs actually hold, so CFD
+    index codes (SPX500, DJ30, …) silently dropped out of it and the bar lost
+    S&P/Dow — see git history. Yahoo is the canonical source for ^GSPC/^DJI/…,
+    so standard indices now always render. Output preserves spec order so the
+    header can show the first N that fit; a symbol Yahoo can't price is omitted
+    rather than shown as a flat zero.
 
-    live = lastExecution            (instrument's listing currency)
-    prev = yahoo_prev[sym] preferred (Yahoo's real previous-session close);
-           falls back to census `currentPrice` when Yahoo doesn't have it.
-           Census is unreliable as "yesterday's close" (the field can be
-           multi-day stale for some instruments) — see clients/yahoo.py.
+    The level is the index's native points value (S&P in index points, DAX in
+    points, etc.) — what every external reference quotes — not an FX-converted
+    number.
     """
     out: list[IndexSummary] = []
-    for name, inst_id in pairs:
-        rate = rates.get(inst_id)
-        info = instruments.get(inst_id)
-        if not rate or not info:
+    for name, sym in specs:
+        quote = quotes.get(sym.upper())
+        if quote is None:
             continue
-        try:
-            live = float(rate.get("lastExecution") or rate.get("bid") or 0)
-        except (TypeError, ValueError):
+        last, prev = quote
+        if last <= 0:
             continue
-        if live <= 0:
-            continue
-        prev = yahoo_prev.get(info.symbol.upper(), 0.0)
-        if prev <= 0:
-            prev = float(info.current_price) if info.current_price else 0.0
-        change_pct = ((live - prev) / prev * 100) if prev > 0 else 0.0
-        out.append(IndexSummary(name=name, last=live, change_pct=change_pct))
+        change_pct = ((last - prev) / prev * 100) if prev > 0 else 0.0
+        out.append(IndexSummary(name=name, last=last, change_pct=change_pct))
     return tuple(out)
 
 
@@ -179,6 +159,24 @@ def _overlay_fields(
     }
 
 
+def _extract_live_price(inst_id: int, rates: dict[int, dict] | None) -> tuple[float, float] | None:
+    """Return (local_price, ocr) from the live rates endpoint, or None."""
+    live = (rates or {}).get(inst_id)
+    if live is None:
+        return None
+    for key in ("lastExecution", "Bid", "bid"):
+        val = live.get(key)
+        if val is None:
+            continue
+        try:
+            candidate = float(val)
+        except (TypeError, ValueError):
+            continue
+        if candidate > 0:
+            return (candidate, float(live.get("conversionRateAsk", 1.0)))
+    return None
+
+
 def _to_position(
     raw: dict,
     instruments: dict[int, InstrumentInfo],
@@ -186,85 +184,54 @@ def _to_position(
     pi_pct: dict,
     rates: dict[int, dict] | None = None,
     yahoo_prev: dict[str, float] | None = None,
+    instrument_overrides: dict[int, str] | None = None,
 ) -> Position | None:
     """Build a Position from a raw eToro position record.
 
-    Returns None when the instrumentID can't be resolved via census (skip the
-    row rather than render with bogus data). eToro returns no symbol/price/pnl
-    so we compute them from the census instruments map.
-
-    Both eToro's `openRate` and the price feeds (live `lastExecution` from
-    rates endpoint, or census `currentPrice` as fallback) are in the
-    instrument's listing currency (USD for US stocks, GBp for .L, HKD for
-    .HK, DKK for .CO, EUR for .DE, etc.).
-
-    For OPEN price we use the position's stored `openConversionRate` (FX rate
-    at open time) — that's the only number that reproduces the original cost
-    basis correctly.
-
-    For CURRENT price we prefer the live rate's `conversionRateAsk` (current
-    FX) when available — most accurate. Fall back to per-position OCR only
-    when both live rates AND census are unavailable (shouldn't happen, but
-    keeps the row honest).
-
-    For PREV CLOSE we prefer `yahoo_prev[symbol]` (yfinance — reliable
-    daily close) over census `currentPrice` (multi-day stale for some
-    instruments). Both sources return listing currency, so FX handling is
-    identical. See clients/yahoo.py.
-
-    The `amount` field already comes back in USD; verification holds across
-    the board: units × openRate × openConversionRate ≈ amount.
+    When the instrumentID is missing from census, the position is still
+    rendered using live rates (value/P&L) and a placeholder symbol (#ID)
+    unless the user has mapped the ID to a ticker via [instruments.map]
+    in config.toml. Fundamentals and Δday show "—" for unmapped
+    instruments. Returns None only when we can't compute any price at all.
     """
     inst_id = raw["instrumentID"]
     info = instruments.get(inst_id)
-    if info is None:
-        return None
-    sym = info.symbol.upper()
+    overrides = instrument_overrides or {}
+
+    # Resolve symbol: census → config override → placeholder
+    if info is not None:
+        sym = info.symbol.upper()
+    elif inst_id in overrides:
+        sym = overrides[inst_id].upper()
+    else:
+        sym = f"#{inst_id}"
+
     units = float(raw["units"])
     open_ocr = float(raw.get("openConversionRate", 1.0))
     local_open = float(raw["openRate"])
-    open_rate = local_open * open_ocr  # local→USD (cost basis)
+    open_rate = local_open * open_ocr
 
-    # Pick the first sensible live (price, FX) pair. Walk keys explicitly so
-    # a 0.0 (briefly possible during corp actions / data glitches) doesn't
-    # silently cascade to the next key, and so all-missing → falls back to
-    # census without ever calling float(None).
-    live = (rates or {}).get(inst_id)
-    live_price_fx: tuple[float, float] | None = None
-    if live is not None:
-        for key in ("lastExecution", "Bid", "bid"):
-            val = live.get(key)
-            if val is None:
-                continue
-            try:
-                candidate = float(val)
-            except (TypeError, ValueError):
-                continue
-            if candidate > 0:
-                live_price_fx = (candidate, float(live.get("conversionRateAsk", 1.0)))
-                break
+    live_price_fx = _extract_live_price(inst_id, rates)
 
     if live_price_fx is not None:
-        # Live last-trade price × current FX (more accurate than per-position OCR).
         local_now, current_ocr = live_price_fx
         current_rate = local_now * current_ocr
-    else:
-        # Fall back to yesterday's close from census, FX'd at open rate.
+    elif info is not None:
         current_ocr = open_ocr
         local_now = float(info.current_price) if info.current_price else 0.0
         current_rate = local_now * open_ocr
-    # Yesterday's close (USD), for Δday. Yahoo (when available) is the
-    # trustworthy source; census `currentPrice` is the fallback and can be
-    # multi-day stale for some instruments. Both are in the listing currency,
-    # so we FX at the same OCR used for current_rate to keep the Δday pure
-    # price-move (FX neutralises across both sides). When live rates fail we
-    # fall back to current_ocr=open_ocr.
+    else:
+        # No census, no live rates — use open rate as best estimate.
+        current_ocr = open_ocr
+        local_now = local_open
+        current_rate = open_rate
+
     local_prev: float | None = None
     if yahoo_prev is not None:
         yp = yahoo_prev.get(sym)
         if yp is not None and yp > 0:
             local_prev = yp
-    if local_prev is None and info.current_price:
+    if local_prev is None and info is not None and info.current_price:
         local_prev = float(info.current_price)
     prev_close = local_prev * current_ocr if local_prev else None
     is_buy = bool(raw["isBuy"])
@@ -436,6 +403,7 @@ class EtoroTuiApp(App[None]):
         self._census = CensusReader(config.CENSUS_GLOB_DIR, config.CENSUS_GLOB_PATTERN)
         self._yahoo = YahooClient(ttl_seconds=1800)
         self._db: sqlite3.Connection | None = None
+        self._fetch_task: asyncio.Task[None] | None = None
 
     # ------- composition -------
 
@@ -447,6 +415,7 @@ class EtoroTuiApp(App[None]):
 
     async def on_mount(self) -> None:
         self._db = storage.init_db(config.SNAPSHOT_DB_PATH)
+        storage.prune_old_snapshots(self._db)
         self._render_state()
         # Demo mode: __main__.py attaches synthetic indices before run().
         if hasattr(self, "_demo_indices"):
@@ -465,9 +434,14 @@ class EtoroTuiApp(App[None]):
         self.set_interval(config.POLL_SIGNALS_S, self._tick_overlays)
         self.set_interval(config.SNAPSHOT_S, self._tick_snapshot)
         self.set_interval(1.0, self._tick_footer_clock)
-        await self._tick_etoro()
+        # Fire first fetch as background task so the UI renders immediately.
+        self._fetch_task = asyncio.create_task(self._tick_etoro())
 
     async def on_unmount(self) -> None:
+        # Cancel any in-flight fetch (especially the yfinance to_thread) so
+        # the event loop doesn't block waiting for it on shutdown.
+        if self._fetch_task is not None and not self._fetch_task.done():
+            self._fetch_task.cancel()
         if self._etoro_client is not None:
             await self._etoro_client.aclose()
         if self._db is not None:
@@ -476,6 +450,8 @@ class EtoroTuiApp(App[None]):
     # ------- timers -------
 
     async def _tick_etoro(self) -> None:
+        # Track ourselves so on_unmount can cancel an in-flight fetch.
+        self._fetch_task = asyncio.current_task()
         if self._etoro_client is None:
             return
         try:
@@ -491,14 +467,10 @@ class EtoroTuiApp(App[None]):
         credit = float(portfolio.get("credit", 0.0))
 
         instruments = self._census.instruments()
-        index_pairs = _resolve_index_ids(instruments)
 
-        # Live prices for everything we hold + the index instruments. If this
-        # fails, degrade to census (yesterday's close) silently so the UI
-        # doesn't break.
-        unique_ids = sorted(
-            {raw["instrumentID"] for raw in raw_positions} | {iid for _, iid in index_pairs}
-        )
+        # Live prices for everything we hold. If this fails, degrade to census
+        # (yesterday's close) silently so the UI doesn't break.
+        unique_ids = sorted({raw["instrumentID"] for raw in raw_positions})
         rates: dict[int, dict] = {}
         prices_live = False
         if unique_ids:
@@ -515,12 +487,17 @@ class EtoroTuiApp(App[None]):
 
         fundamentals = self._signals.fundamentals()
         pi_pct = self._census.read()
+        inst_overrides = config.get_instrument_overrides()
 
-        # Yahoo previous-closes for everything we hold + the indices. Yahoo
-        # is the trustworthy daily-close source; census `currentPrice` is
-        # multi-day stale for some instruments and would give the wrong Δday
-        # against eToro web. Silent fallback to census on miss/failure.
-        all_syms = sorted({instruments[iid].symbol for iid in unique_ids if iid in instruments})
+        # Yahoo previous-closes for everything we hold (indices are fetched
+        # separately). Include config-overridden symbols so they get Δday too.
+        all_syms_set: set[str] = set()
+        for iid in unique_ids:
+            if iid in instruments:
+                all_syms_set.add(instruments[iid].symbol)
+            elif iid in inst_overrides:
+                all_syms_set.add(inst_overrides[iid])
+        all_syms = sorted(all_syms_set)
         yahoo_prev: dict[str, float] = {}
         try:
             yahoo_prev = await self._yahoo.fetch_prev_closes(all_syms)
@@ -528,15 +505,18 @@ class EtoroTuiApp(App[None]):
             log.warning("yahoo fetch failed, using census fallback: %s", e)
 
         positions_list: list[Position] = []
-        skipped = 0
         for raw in raw_positions:
-            built = _to_position(raw, instruments, fundamentals, pi_pct, rates, yahoo_prev)
-            if built is None:
-                skipped += 1
-            else:
+            built = _to_position(
+                raw,
+                instruments,
+                fundamentals,
+                pi_pct,
+                rates,
+                yahoo_prev,
+                inst_overrides,
+            )
+            if built is not None:
                 positions_list.append(built)
-        if skipped:
-            log.info("skipped %d positions (instrumentID not in census)", skipped)
 
         # Aggregate by symbol — eToro splits a holding into many lots; the
         # user wants one row per ticker with a Pos column showing lot count.
@@ -551,10 +531,13 @@ class EtoroTuiApp(App[None]):
             # dominating the min-max scale and producing a single solid bar.
             spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
 
-        # Indices (live levels) feed the header bar. Actions / dossier panel
-        # were removed because they depended on local-only data sources
-        # (etorotrade signals + census PIs) that other users won't have.
-        indices = _build_indices(rates, instruments, index_pairs, yahoo_prev)
+        # Indices feed the header bar — priced from Yahoo (NOT the census), so
+        # standard market indices always render regardless of whether a popular
+        # investor happens to hold a CFD on them. The client guards its own
+        # network/parse failures and returns whatever it has.
+        index_specs = config.get_indices()
+        index_quotes = await self._yahoo.fetch_index_quotes([sym for _, sym in index_specs])
+        indices = _build_indices(index_specs, index_quotes)
         self.query_one(Header).indices = indices
 
         # Status reflects rates-fetch outcome too: live only when prices
@@ -606,7 +589,7 @@ class EtoroTuiApp(App[None]):
         if self._db is None or self._state.account is None:
             return
         try:
-            storage.write_snapshot(self._db, self._state.account, self._state.positions)
+            storage.write_snapshot(self._db, self._state.account)
         except Exception as e:  # noqa: BLE001 — snapshot is best-effort
             log.warning("snapshot write failed: %s", e)
 
@@ -642,6 +625,8 @@ class EtoroTuiApp(App[None]):
         table.positions = self._state.positions
         footer = self.query_one(Footer)
         footer.last_error = self._state.last_error
+        # Distinct instruments held (one row per symbol), not eToro lots.
+        footer.asset_count = len(self._state.positions)
 
     def _set_error(self, msg: str, status: Status) -> None:
         self._state = AppState(
