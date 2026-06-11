@@ -260,7 +260,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "textual", specifier = ">=0.86" },
-    { name = "yfinance", specifier = ">=0.2.40,<0.3" },
+    { name = "yfinance", specifier = ">=0.2.40,<1.5" },
 ]
 provides-extras = ["dev"]
 

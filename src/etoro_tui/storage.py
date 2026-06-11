@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import AccountSummary, Position
+from .models import AccountSummary
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS equity_snapshots (
@@ -17,23 +16,9 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
     unrealized  REAL NOT NULL,
     realized    REAL NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS position_snapshots (
-    ts            TEXT NOT NULL,
-    position_id   INTEGER NOT NULL,
-    symbol        TEXT NOT NULL,
-    units         REAL NOT NULL,
-    open_rate     REAL NOT NULL,
-    current_rate  REAL NOT NULL,
-    value         REAL NOT NULL,
-    pnl           REAL NOT NULL,
-    pnl_pct       REAL NOT NULL,
-    PRIMARY KEY (ts, position_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_pos_symbol_ts
-    ON position_snapshots(symbol, ts);
 """
+
+_RETENTION_DAYS = 7
 
 
 def init_db(path: Path) -> sqlite3.Connection:
@@ -46,6 +31,7 @@ def init_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     conn = sqlite3.connect(path)
     conn.executescript(_SCHEMA)
+    _migrate_drop_position_snapshots(conn)
     conn.commit()
     try:
         path.chmod(0o600)
@@ -54,36 +40,28 @@ def init_db(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _migrate_drop_position_snapshots(conn: sqlite3.Connection) -> None:
+    """One-time migration: drop the defunct position_snapshots table and reclaim space."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "position_snapshots" not in tables:
+        return
+    conn.execute("DROP TABLE position_snapshots")
+    conn.execute("VACUUM")
+    import logging
+
+    logging.getLogger(__name__).info("migrated: dropped position_snapshots + VACUUM")
+
+
 def write_snapshot(
     conn: sqlite3.Connection,
     account: AccountSummary,
-    positions: Iterable[Position],
 ) -> None:
-    """Insert one snapshot row in equity_snapshots and one per position."""
+    """Insert one equity snapshot row."""
     ts = datetime.now(UTC).isoformat(timespec="microseconds")
     conn.execute(
         "INSERT OR REPLACE INTO equity_snapshots VALUES (?, ?, ?, ?, ?)",
         (ts, account.equity, account.cash, account.unrealized, account.realized),
     )
-    rows = [
-        (
-            ts,
-            p.position_id,
-            p.symbol,
-            p.units,
-            p.open_rate,
-            p.current_rate,
-            p.value,
-            p.pnl,
-            p.pnl_pct,
-        )
-        for p in positions
-    ]
-    if rows:
-        conn.executemany(
-            "INSERT OR REPLACE INTO position_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            rows,
-        )
     conn.commit()
 
 
@@ -111,16 +89,11 @@ def read_equity_sparkline(
     return _downsample([r[0] for r in rows], max_points)
 
 
-def read_position_sparkline(
-    conn: sqlite3.Connection,
-    symbol: str,
-    hours: int = 24,
-    max_points: int = 40,
-) -> tuple[float, ...]:
-    """Return per-position price time series."""
-    rows = conn.execute(
-        "SELECT current_rate FROM position_snapshots "
-        "WHERE symbol = ? AND ts > datetime('now', ?) ORDER BY ts",
-        (symbol, f"-{hours} hours"),
-    ).fetchall()
-    return _downsample([r[0] for r in rows], max_points)
+def prune_old_snapshots(conn: sqlite3.Connection) -> int:
+    """Delete equity snapshots older than _RETENTION_DAYS. Returns rows deleted."""
+    cur = conn.execute(
+        "DELETE FROM equity_snapshots WHERE ts < datetime('now', ?)",
+        (f"-{_RETENTION_DAYS} days",),
+    )
+    conn.commit()
+    return cur.rowcount

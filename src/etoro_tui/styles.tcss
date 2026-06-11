@@ -104,6 +104,7 @@ Footer {
 
 #footer-legend { width: auto; margin-left: 1; }
 #footer-sort   { width: auto; margin: 0 2; }
+#footer-assets { width: auto; margin: 0 2; }
 #footer-prices { width: auto; margin: 0 2; }
 #footer-fetch  { width: 1fr; content-align: right middle; margin-right: 1; }
 
