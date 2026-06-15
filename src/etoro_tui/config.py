@@ -13,7 +13,7 @@ dependency — keeps the binary portable across Linux, macOS, Windows.
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -30,7 +30,7 @@ SNAPSHOT_S = 60
 
 # Market-hours window (UTC, 0-23). Active polling uses POLL_PORTFOLIO_S;
 # outside this window (and weekends) falls back to POLL_PORTFOLIO_IDLE_S.
-MARKET_OPEN_UTC = 7   # covers European opens
+MARKET_OPEN_UTC = 7  # covers European opens
 MARKET_CLOSE_UTC = 22  # covers US regular close
 
 # Local user data root.
@@ -172,7 +172,7 @@ MARKET_CLOSE_UTC = _toml("intervals", "market_close_utc", default=MARKET_CLOSE_U
 
 def is_market_active() -> bool:
     """True on weekdays when the current UTC hour is within the active window."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if now.weekday() >= 5:  # Saturday=5, Sunday=6
         return False
     return MARKET_OPEN_UTC <= now.hour < MARKET_CLOSE_UTC
