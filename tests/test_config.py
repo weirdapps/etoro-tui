@@ -80,8 +80,48 @@ def test_paths_are_absolute():
 
 def test_intervals_are_positive():
     assert config.POLL_PORTFOLIO_S > 0
+    assert config.POLL_PORTFOLIO_IDLE_S > 0
     assert config.POLL_SIGNALS_S > 0
     assert config.SNAPSHOT_S > 0
+
+
+def test_idle_slower_than_active():
+    assert config.POLL_PORTFOLIO_IDLE_S > config.POLL_PORTFOLIO_S
+
+
+# ---- market hours ----
+
+
+def test_market_active_weekday_during_hours(monkeypatch):
+    from datetime import datetime, timezone
+
+    mon_15 = datetime(2026, 6, 15, 15, 0, tzinfo=timezone.utc)  # Monday
+    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_15)}))
+    assert config.is_market_active() is True
+
+
+def test_market_inactive_weekend(monkeypatch):
+    from datetime import datetime, timezone
+
+    sat_15 = datetime(2026, 6, 13, 15, 0, tzinfo=timezone.utc)  # Saturday
+    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: sat_15)}))
+    assert config.is_market_active() is False
+
+
+def test_market_inactive_before_open(monkeypatch):
+    from datetime import datetime, timezone
+
+    mon_3 = datetime(2026, 6, 15, 3, 0, tzinfo=timezone.utc)  # Monday 03:00
+    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_3)}))
+    assert config.is_market_active() is False
+
+
+def test_market_inactive_after_close(monkeypatch):
+    from datetime import datetime, timezone
+
+    mon_23 = datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc)  # Monday 23:00
+    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_23)}))
+    assert config.is_market_active() is False
 
 
 def test_get_indices_default():

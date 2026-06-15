@@ -41,6 +41,9 @@ list = [
 
 # -- Refresh cadences (seconds) — usually no need to override ---------------
 # [intervals]
-# poll_portfolio = 5
-# poll_signals   = 30
-# snapshot       = 60
+# poll_portfolio      = 30    # during market hours
+# poll_portfolio_idle = 600   # outside market hours / weekends
+# poll_signals        = 30
+# snapshot            = 60
+# market_open_utc     = 7     # hour (0-23) — start of active polling
+# market_close_utc    = 22    # hour (0-23) — end of active polling
