@@ -1,3 +1,5 @@
+from datetime import UTC
+
 import pytest
 
 from etoro_tui import config
@@ -93,34 +95,40 @@ def test_idle_slower_than_active():
 
 
 def test_market_active_weekday_during_hours(monkeypatch):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    mon_15 = datetime(2026, 6, 15, 15, 0, tzinfo=timezone.utc)  # Monday
-    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_15)}))
+    mon_15 = datetime(2026, 6, 15, 15, 0, tzinfo=UTC)  # Monday
+    monkeypatch.setattr(
+        config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_15)})
+    )
     assert config.is_market_active() is True
 
 
 def test_market_inactive_weekend(monkeypatch):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    sat_15 = datetime(2026, 6, 13, 15, 0, tzinfo=timezone.utc)  # Saturday
-    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: sat_15)}))
+    sat_15 = datetime(2026, 6, 13, 15, 0, tzinfo=UTC)  # Saturday
+    monkeypatch.setattr(
+        config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: sat_15)})
+    )
     assert config.is_market_active() is False
 
 
 def test_market_inactive_before_open(monkeypatch):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    mon_3 = datetime(2026, 6, 15, 3, 0, tzinfo=timezone.utc)  # Monday 03:00
+    mon_3 = datetime(2026, 6, 15, 3, 0, tzinfo=UTC)  # Monday 03:00
     monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_3)}))
     assert config.is_market_active() is False
 
 
 def test_market_inactive_after_close(monkeypatch):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    mon_23 = datetime(2026, 6, 15, 23, 0, tzinfo=timezone.utc)  # Monday 23:00
-    monkeypatch.setattr(config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_23)}))
+    mon_23 = datetime(2026, 6, 15, 23, 0, tzinfo=UTC)  # Monday 23:00
+    monkeypatch.setattr(
+        config, "datetime", type("dt", (), {"now": staticmethod(lambda tz: mon_23)})
+    )
     assert config.is_market_active() is False
 
 
