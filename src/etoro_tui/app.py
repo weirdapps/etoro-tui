@@ -15,6 +15,7 @@ from typing import TypedDict
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
+from textual.timer import Timer
 
 from . import config, storage
 from .clients.census import CensusReader, InstrumentInfo
@@ -404,6 +405,8 @@ class EtoroTuiApp(App[None]):
         self._yahoo = YahooClient(ttl_seconds=1800)
         self._db: sqlite3.Connection | None = None
         self._fetch_task: asyncio.Task[None] | None = None
+        self._etoro_timer: Timer | None = None
+        self._market_open: bool = config.is_market_active()
 
     # ------- composition -------
 
@@ -430,7 +433,8 @@ class EtoroTuiApp(App[None]):
                 self._set_error(str(e), "down")
                 return
             self._etoro_client = EtoroClient(public_key=pk, user_key=uk)
-        self.set_interval(config.POLL_PORTFOLIO_S, self._tick_etoro)
+        poll_s = config.POLL_PORTFOLIO_S if self._market_open else config.POLL_PORTFOLIO_IDLE_S
+        self._etoro_timer = self.set_interval(poll_s, self._tick_etoro)
         self.set_interval(config.POLL_SIGNALS_S, self._tick_overlays)
         self.set_interval(config.SNAPSHOT_S, self._tick_snapshot)
         self.set_interval(1.0, self._tick_footer_clock)
@@ -554,13 +558,26 @@ class EtoroTuiApp(App[None]):
         footer.prices_source = "live" if prices_live else "census"
         footer.census_stale = self._census.is_stale
         self._render_state()
+        self._adjust_poll_interval()
+
+    def _adjust_poll_interval(self) -> None:
+        """Swap the eToro timer when the market opens or closes."""
+        now_open = config.is_market_active()
+        if now_open == self._market_open:
+            return
+        self._market_open = now_open
+        new_s = config.POLL_PORTFOLIO_S if now_open else config.POLL_PORTFOLIO_IDLE_S
+        if self._etoro_timer is not None:
+            self._etoro_timer.stop()
+        self._etoro_timer = self.set_interval(new_s, self._tick_etoro)
+        tag = "market open" if now_open else "market closed"
+        log.info("poll interval → %ss (%s)", new_s, tag)
 
     def _tick_overlays(self) -> None:
         # Re-attach current overlay values without re-fetching from eToro.
         # prev_close is intentionally NOT refreshed here — it requires the
         # current FX from live rates AND the Yahoo prev-close fetch (both only
-        # happen in _tick_etoro). It will update on the next _tick_etoro cycle
-        # (every 5s).
+        # happen in _tick_etoro). It will update on the next _tick_etoro cycle.
         if self._state.account is None:
             return
         fundamentals = self._signals.fundamentals()

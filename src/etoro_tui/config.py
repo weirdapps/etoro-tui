@@ -13,6 +13,7 @@ dependency — keeps the binary portable across Linux, macOS, Windows.
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,10 +22,16 @@ from typing import Any, Literal
 ETORO_BASE_URL = "https://public-api.etoro.com"
 
 # Refresh intervals (seconds). Override via TOML [intervals].
-POLL_PORTFOLIO_S = 5
+POLL_PORTFOLIO_S = 30
+POLL_PORTFOLIO_IDLE_S = 600  # outside market hours
 POLL_SIGNALS_S = 30
 POLL_CENSUS_S = 60
 SNAPSHOT_S = 60
+
+# Market-hours window (UTC, 0-23). Active polling uses POLL_PORTFOLIO_S;
+# outside this window (and weekends) falls back to POLL_PORTFOLIO_IDLE_S.
+MARKET_OPEN_UTC = 7   # covers European opens
+MARKET_CLOSE_UTC = 22  # covers US regular close
 
 # Local user data root.
 ETORO_TUI_HOME = Path.home() / ".etoro-tui"
@@ -153,6 +160,22 @@ def _path_override(*keys: str, default: Path) -> Path:
 SIGNALS_CSV = _path_override("paths", "signals_csv", default=SIGNALS_CSV)
 CENSUS_GLOB_DIR = _path_override("paths", "census_dir", default=CENSUS_GLOB_DIR)
 SNAPSHOT_DB_PATH = _path_override("paths", "snapshot_db", default=SNAPSHOT_DB_PATH)
+
+# Apply TOML interval overrides (after defaults are defined)
+POLL_PORTFOLIO_S = _toml("intervals", "poll_portfolio", default=POLL_PORTFOLIO_S)
+POLL_PORTFOLIO_IDLE_S = _toml("intervals", "poll_portfolio_idle", default=POLL_PORTFOLIO_IDLE_S)
+POLL_SIGNALS_S = _toml("intervals", "poll_signals", default=POLL_SIGNALS_S)
+SNAPSHOT_S = _toml("intervals", "snapshot", default=SNAPSHOT_S)
+MARKET_OPEN_UTC = _toml("intervals", "market_open_utc", default=MARKET_OPEN_UTC)
+MARKET_CLOSE_UTC = _toml("intervals", "market_close_utc", default=MARKET_CLOSE_UTC)
+
+
+def is_market_active() -> bool:
+    """True on weekdays when the current UTC hour is within the active window."""
+    now = datetime.now(timezone.utc)
+    if now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    return MARKET_OPEN_UTC <= now.hour < MARKET_CLOSE_UTC
 
 
 # ---- credentials ----
