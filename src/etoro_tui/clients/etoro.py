@@ -104,6 +104,36 @@ class EtoroClient:
         raw = await self._get("/v1/trading/info/portfolio")
         return raw.get("clientPortfolio", {})
 
+    async def fetch_instrument_symbols(
+        self,
+        instrument_ids: list[int],
+        batch_size: int = 50,
+    ) -> dict[int, str]:
+        """Resolve instrumentID → ticker symbol via the display-data endpoint.
+
+        Endpoint: GET /v1/market-data/instruments?instrumentIds=…
+        Returns {instrumentID: symbolFull} e.g. {1002: "GOOG", 1137: "NVDA"}.
+        """
+        if not instrument_ids:
+            return {}
+        out: dict[int, str] = {}
+        for i in range(0, len(instrument_ids), batch_size):
+            batch = instrument_ids[i : i + batch_size]
+            path = (
+                "/v1/market-data/instruments"
+                f"?instrumentIds={','.join(str(x) for x in batch)}"
+            )
+            try:
+                resp = await self._get(path)
+            except (EtoroAuthError, EtoroTransientError):
+                continue
+            for item in resp.get("instrumentDisplayDatas", []):
+                iid = item.get("instrumentID")
+                sym = item.get("symbolFull")
+                if iid is not None and sym:
+                    out[int(iid)] = sym
+        return out
+
     async def fetch_rates(
         self,
         instrument_ids: list[int],

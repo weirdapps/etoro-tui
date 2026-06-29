@@ -79,6 +79,10 @@ SIGNALS_GITHUB_URL = (
     "https://raw.githubusercontent.com/weirdapps/etorotrade/main/yahoofinance/output/etoro.csv"
 )
 
+PORTFOLIO_CSV = (
+    Path.home() / "SourceCode" / "etorotrade" / "yahoofinance" / "input" / "portfolio.csv"
+)
+
 CENSUS_GLOB_DIR = Path.home() / "SourceCode" / "etoro_census" / "archive" / "data"
 CENSUS_GLOB_PATTERN = "etoro-data-*.json"
 CENSUS_GITHUB_REPO = "weirdapps/etoro_census"  # <owner>/<repo>
