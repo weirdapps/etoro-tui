@@ -52,6 +52,7 @@ class EtoroClient:
         self._client = httpx.AsyncClient(
             base_url=base_url,
             timeout=timeout_seconds,
+            headers={"User-Agent": "Mozilla/5.0"},
         )
 
     async def aclose(self) -> None:
@@ -100,7 +101,7 @@ class EtoroClient:
         Caller is responsible for resolving instrumentID→symbol and computing
         per-position pnl/value (eToro doesn't return those).
         """
-        raw = await self._get("/api/v1/trading/info/portfolio")
+        raw = await self._get("/v1/trading/info/portfolio")
         return raw.get("clientPortfolio", {})
 
     async def fetch_rates(
@@ -132,7 +133,7 @@ class EtoroClient:
         for i in range(0, len(instrument_ids), batch_size):
             batch = instrument_ids[i : i + batch_size]
             path = (
-                "/api/v1/market-data/instruments/rates"
+                "/v1/market-data/instruments/rates"
                 f"?instrumentIds={','.join(str(x) for x in batch)}"
             )
             resp = await self._get(path)
