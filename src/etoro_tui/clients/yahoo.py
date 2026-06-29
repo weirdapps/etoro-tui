@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import time
 from typing import Any
 
@@ -64,22 +63,22 @@ def to_yahoo_symbol(etoro_symbol: str) -> str | None:
 def _extract_prev_close(df: pd.DataFrame, yahoo_sym: str) -> float | None:
     """Pick the second-to-last Close from a yf.download response. Last bar is
     today's intraday; one before is yesterday's close. Returns None on NaN /
-    missing column / single-row data."""
+    missing column / single-row data.
+
+    NaN rows are dropped first — batch downloads that include 24/7 instruments
+    (BTC) extend the date index with weekend rows where stocks have NaN."""
     try:
         if isinstance(df.columns, pd.MultiIndex):
-            # Batch fetch (group_by='ticker') puts (ticker, field) in columns.
             closes = df[(yahoo_sym, "Close")]
         else:
-            # Single-ticker fetch returns flat columns (Open/Close/...).
             closes = df["Close"]
     except KeyError:
         return None
+    closes = closes.dropna()
     if len(closes) < 2:
         return None
     val = closes.iloc[-2]
-    if val is None or (isinstance(val, float) and math.isnan(val)):
-        return None
-    return float(val)
+    return float(val) if val is not None and val > 0 else None
 
 
 def _extract_last_two(df: pd.DataFrame, yahoo_sym: str) -> tuple[float, float] | None:
