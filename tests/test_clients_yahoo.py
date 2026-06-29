@@ -50,11 +50,38 @@ def test_to_yahoo_symbol_crypto_gets_usd_suffix() -> None:
 
 
 def test_to_yahoo_symbol_dotted_listings_passthrough() -> None:
-    """Yahoo natively accepts the same .DE / .L / .HK / .CO suffixes eToro uses."""
+    """Yahoo natively accepts the same .DE / .L / .MI suffixes eToro uses."""
     assert to_yahoo_symbol("PRU.L") == "PRU.L"
     assert to_yahoo_symbol("DTE.DE") == "DTE.DE"
-    assert to_yahoo_symbol("0700.HK") == "0700.HK"
-    assert to_yahoo_symbol("LYXGRE.DE") == "LYXGRE.DE"
+    assert to_yahoo_symbol("UCG.MI") == "UCG.MI"
+
+
+def test_to_yahoo_symbol_hk_leading_zeros() -> None:
+    """Yahoo expects no leading zeros on HK tickers."""
+    assert to_yahoo_symbol("0700.HK") == "700.HK"
+    assert to_yahoo_symbol("00175.HK") == "175.HK"
+    assert to_yahoo_symbol("9988.HK") == "9988.HK"
+
+
+def test_to_yahoo_symbol_suffix_remap() -> None:
+    """.NV → .AS (Amsterdam), .ASX → .AX (Australia), etc."""
+    assert to_yahoo_symbol("ASML.NV") == "ASML.AS"
+    assert to_yahoo_symbol("HEIA.NV") == "HEIA.AS"
+
+
+def test_to_yahoo_symbol_data_fetch_substitutions() -> None:
+    """Instruments that need a completely different Yahoo ticker."""
+    assert to_yahoo_symbol("LYXGRE.DE") == "GRE.PA"
+
+
+def test_to_yahoo_symbol_copenhagen_share_classes() -> None:
+    assert to_yahoo_symbol("NOVOB.CO") == "NOVO-B.CO"
+
+
+def test_to_yahoo_symbol_commodities_and_fx() -> None:
+    assert to_yahoo_symbol("GOLD") == "GC=F"
+    assert to_yahoo_symbol("OIL") == "CL=F"
+    assert to_yahoo_symbol("EURUSD") == "EURUSD=X"
 
 
 # ---------------------------------------------------------------------------
