@@ -108,3 +108,18 @@ async def test_sort_key_cycles():
         await pilot.pause()
         await pilot.pause()  # Give reactive time to update
         assert table.sort_key != before
+
+
+@pytest.mark.asyncio
+async def test_footer_prices_source_ws_label_is_green():
+    app = EtoroTuiApp(initial_state=_make_state(), disable_polling=True)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        footer = app.query_one("Footer")
+        footer.prices_source = "live (ws)"
+        await pilot.pause()
+        text = str(app.query_one("#footer-prices").render())
+        # The "●" bullet is added only by the green live/census branches, never
+        # the dim "unknown" else-branch — so it proves "live (ws)" is recognised
+        # as a live source rather than rendered as an unknown literal.
+        assert "● live (ws)" in text

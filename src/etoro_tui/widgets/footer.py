@@ -81,10 +81,11 @@ class Footer(Vertical):
         )
 
     def watch_prices_source(self, value: str) -> None:
-        # Color the indicator: green=live, yellow=census fallback, dim=unknown.
-        if value == "live":
-            label = Text.assemble(("prices  ", "dim"), ("● live", "green"))
-        elif value == "census":
+        # Color the indicator: green=live (ws/rest), yellow=census fallback,
+        # dim=unknown. The value carries the source, e.g. "live (ws)".
+        if value.startswith("live"):
+            label = Text.assemble(("prices  ", "dim"), (f"● {value}", "green"))
+        elif value.startswith("census"):
             label = Text.assemble(("prices  ", "dim"), ("● census fallback", "yellow"))
         else:
             label = Text.assemble(("prices  ", "dim"), (value, "dim"))

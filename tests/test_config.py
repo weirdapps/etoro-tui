@@ -87,6 +87,12 @@ def test_intervals_are_positive():
     assert config.SNAPSHOT_S > 0
 
 
+def test_ws_defaults_present():
+    assert config.WS_URL.startswith("wss://")
+    assert isinstance(config.WS_ENABLED, bool)
+    assert config.RENDER_S > 0
+
+
 def test_idle_slower_than_active():
     assert config.POLL_PORTFOLIO_IDLE_S > config.POLL_PORTFOLIO_S
 

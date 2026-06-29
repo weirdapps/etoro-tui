@@ -20,6 +20,8 @@ from typing import Any, Literal
 # ---- baked-in defaults ----
 
 ETORO_BASE_URL = "https://www.etoro.com/api/public"
+WS_URL = "wss://ws.etoro.com/ws"
+WS_ENABLED = True  # [websocket].enabled — false forces the pure-REST price path
 
 # Refresh intervals (seconds). Override via TOML [intervals].
 POLL_PORTFOLIO_S = 30
@@ -27,6 +29,7 @@ POLL_PORTFOLIO_IDLE_S = 600  # outside market hours
 POLL_SIGNALS_S = 30
 POLL_CENSUS_S = 60
 SNAPSHOT_S = 60
+RENDER_S = 1.5  # fast re-render cadence from the live WS price store
 
 # Market-hours window (UTC, 0-23). Active polling uses POLL_PORTFOLIO_S;
 # outside this window (and weekends) falls back to POLL_PORTFOLIO_IDLE_S.
@@ -168,6 +171,8 @@ POLL_SIGNALS_S = _toml("intervals", "poll_signals", default=POLL_SIGNALS_S)
 SNAPSHOT_S = _toml("intervals", "snapshot", default=SNAPSHOT_S)
 MARKET_OPEN_UTC = _toml("intervals", "market_open_utc", default=MARKET_OPEN_UTC)
 MARKET_CLOSE_UTC = _toml("intervals", "market_close_utc", default=MARKET_CLOSE_UTC)
+RENDER_S = _toml("intervals", "render", default=RENDER_S)
+WS_ENABLED = _toml("websocket", "enabled", default=WS_ENABLED)
 
 
 def is_market_active() -> bool:
