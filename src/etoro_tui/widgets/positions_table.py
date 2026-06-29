@@ -362,8 +362,7 @@ class PositionsTable(Vertical):
         new_width = self._available_width()
         compute_widths(new_width)
         self._add_columns()
-        # Columns were cleared — repopulate rows with the new widths.
-        self._refresh_table()
+        self._rebuild_table()
 
     def cycle_sort(self) -> None:
         idx = _SORT_CYCLE.index(self.sort_key)
@@ -390,17 +389,17 @@ class PositionsTable(Vertical):
             self.query_one(DataTable).focus()
 
     def watch_positions(self, _: tuple[Position, ...]) -> None:
-        self._refresh_table()
+        self._update_values()
 
     def watch_equity(self, _: float) -> None:
-        self._refresh_table()
+        self._update_values()
 
     def watch_sort_key(self, key: SortKey) -> None:
-        self._refresh_table()
+        self._rebuild_table()
         self.post_message(self.SortChanged(key))
 
     def watch_filter_text(self, _: str) -> None:
-        self._refresh_table()
+        self._rebuild_table()
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         idx = event.cursor_row
@@ -468,22 +467,29 @@ class PositionsTable(Vertical):
             _signal(p.signal),
         )
 
-    def _refresh_table(self) -> None:
+    def _update_values(self) -> None:
+        """In-place cell updates — preserves scroll and cursor."""
         table = self.query_one(DataTable)
-        rows = self._sorted_filtered_positions()
+        if table.row_count == 0:
+            self._rebuild_table()
+            return
         eq = self.equity if self.equity > 0 else 0
         col_keys = [spec[1] for spec in _COL_SPECS]
-        new_keys = [str(p.position_id) for p in rows]
-        old_keys = [str(rk.value) for rk in table.rows]
+        pos_map = {str(p.position_id): p for p in self.positions}
+        existing_keys = {str(rk.value) for rk in table.rows}
+        if pos_map.keys() != existing_keys:
+            self._rebuild_table()
+            return
+        for rk_str, p in pos_map.items():
+            cells = self._row_cells(p, eq)
+            for ck, val in zip(col_keys, cells):
+                table.update_cell(rk_str, ck, val, update_width=False)
 
-        if new_keys == old_keys:
-            for p in rows:
-                cells = self._row_cells(p, eq)
-                rk = str(p.position_id)
-                for ck, val in zip(col_keys, cells):
-                    table.update_cell(rk, ck, val, update_width=False)
-        else:
-            table.clear()
-            for p in rows:
-                cells = self._row_cells(p, eq)
-                table.add_row(*cells, key=str(p.position_id))
+    def _rebuild_table(self) -> None:
+        """Full clear + re-add — used for sort/filter changes and row-set changes."""
+        table = self.query_one(DataTable)
+        table.clear()
+        eq = self.equity if self.equity > 0 else 0
+        for p in self._sorted_filtered_positions():
+            cells = self._row_cells(p, eq)
+            table.add_row(*cells, key=str(p.position_id))
