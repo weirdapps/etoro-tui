@@ -42,6 +42,31 @@ from .widgets.positions_table import SORT_LABELS, PositionsTable
 
 log = logging.getLogger(__name__)
 
+_CSV_MAP_CACHE: dict[int, str] | None = None
+
+
+def _load_portfolio_csv_map() -> dict[int, str]:
+    """Load instrumentId→symbol from etorotrade portfolio.csv (static fallback)."""
+    global _CSV_MAP_CACHE  # noqa: PLW0603
+    if _CSV_MAP_CACHE is not None:
+        return _CSV_MAP_CACHE
+    import csv
+
+    mapping: dict[int, str] = {}
+    path = config.PORTFOLIO_CSV
+    if path.exists():
+        with path.open() as f:
+            for row in csv.DictReader(f):
+                iid = row.get("instrumentId", "").strip()
+                sym = row.get("symbol", "").strip()
+                if iid and sym:
+                    try:
+                        mapping[int(iid)] = sym
+                    except ValueError:
+                        pass
+    _CSV_MAP_CACHE = mapping
+    return mapping
+
 
 class _OverlayKwargs(TypedDict):
     """Typed kwargs for the overlay fields on Position. Mirrors the field
@@ -421,6 +446,7 @@ class EtoroTuiApp(App[None]):
         self._yahoo_prev: dict[str, float] = {}
         self._inst_overrides: dict[int, str] = {}
         self._rest_rates: dict[int, dict] = {}
+        self._api_symbol_cache: dict[int, str] = {}
         self._spark: tuple[float, ...] = ()
         self._prices_source: str = "—"
         self._have_portfolio: bool = False
@@ -548,6 +574,24 @@ class EtoroTuiApp(App[None]):
         self._credit = float(portfolio.get("credit", 0.0))
         self._instruments = self._census.instruments()
         unique_ids = sorted({raw["instrumentID"] for raw in self._raw_positions})
+
+        # Fill gaps: instrument IDs not in census → resolve via live API, cache result
+        missing_ids = [iid for iid in unique_ids if iid not in self._instruments and iid not in self._api_symbol_cache]
+        if missing_ids:
+            try:
+                api_syms = await self._etoro_client.fetch_instrument_symbols(missing_ids)
+                self._api_symbol_cache.update(api_syms)
+            except Exception as e:
+                log.warning("instrument symbol fetch failed: %s", e)
+        # Merge cached API symbols into instruments (without price — that comes from rates)
+        for iid, sym in self._api_symbol_cache.items():
+            if iid not in self._instruments:
+                self._instruments[iid] = InstrumentInfo(symbol=sym, current_price=0.0)
+        # Final fallback: portfolio.csv static map
+        csv_map = _load_portfolio_csv_map()
+        for iid, sym in csv_map.items():
+            if iid not in self._instruments:
+                self._instruments[iid] = InstrumentInfo(symbol=sym, current_price=0.0)
 
         # Reconcile WS subscriptions to exactly what we hold.
         if self._price_stream is not None and unique_ids:
