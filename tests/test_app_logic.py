@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 import pytest
 
 from etoro_tui.app import (
+    EtoroTuiApp,
     _build_indices,
     _overlay_fields,
     _previous_close_equity,
@@ -462,3 +463,78 @@ def test_to_position_census_missing_no_rates_uses_open() -> None:
     assert p.symbol == "#14710"
     assert p.current_rate == pytest.approx(2900.0)
     assert p.pnl == 0.0
+
+
+# ---------------------------------------------------------------------------
+# WS price-stream integration: _current_rates + _rerender_positions
+# ---------------------------------------------------------------------------
+
+
+class _FakeStream:
+    """Stand-in for EtoroPriceStream with a fixed store + connection state."""
+
+    def __init__(self, rates: dict, connected: bool = True) -> None:
+        self._rates = rates
+        self._connected = connected
+        self.instruments: set | None = None
+
+    async def start(self) -> None: ...
+
+    def latest(self) -> dict:
+        return {k: dict(v) for k, v in self._rates.items()}
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    async def set_instruments(self, ids: set) -> None:
+        self.instruments = set(ids)
+
+    async def aclose(self) -> None: ...
+
+
+def test_current_rates_prefers_ws_over_rest() -> None:
+    app = EtoroTuiApp(
+        price_stream=_FakeStream({1005: {"lastExecution": 195.4, "conversionRateAsk": 1.0}}),
+        disable_polling=True,
+    )
+    app._rest_rates = {1005: {"lastExecution": 190.0}, 1007: {"lastExecution": 50.0}}
+    rates = app._current_rates()
+    assert rates[1005]["lastExecution"] == 195.4  # WS wins per instrument
+    assert rates[1007]["lastExecution"] == 50.0  # REST-only entry retained
+
+
+def test_current_rates_falls_back_to_rest_when_ws_empty() -> None:
+    app = EtoroTuiApp(price_stream=_FakeStream({}, connected=False), disable_polling=True)
+    app._rest_rates = {1005: {"lastExecution": 190.0}}
+    assert app._current_rates()[1005]["lastExecution"] == 190.0
+
+
+@pytest.mark.asyncio
+async def test_rerender_builds_positions_from_ws_store() -> None:
+    app = EtoroTuiApp(
+        initial_state=None,
+        disable_polling=True,
+        price_stream=_FakeStream({1001: {"lastExecution": 195.40, "conversionRateAsk": 1.0}}),
+    )
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._have_portfolio = True
+        app._raw_positions = [
+            {
+                "positionID": 42,
+                "instrumentID": 1001,
+                "units": 10.0,
+                "openRate": 150.0,
+                "openConversionRate": 1.0,
+                "isBuy": True,
+                "openDateTime": "2026-01-01T10:00:00.000Z",
+            }
+        ]
+        app._instruments = {1001: InstrumentInfo(symbol="AAPL", current_price=200.0)}
+        app._credit = 1000.0
+        app._prices_source = "live (ws)"
+        app._rerender_positions()
+        await pilot.pause()
+        table = app.query_one("PositionsTable")
+        assert any(abs(p.current_rate - 195.40) < 1e-6 for p in table.positions)
+        assert "live (ws)" in str(app.query_one("#footer-prices").render())

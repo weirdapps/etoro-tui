@@ -24,6 +24,7 @@ from .clients.etoro import (
     EtoroClient,
     EtoroTransientError,
 )
+from .clients.price_stream import EtoroPriceStream
 from .clients.signals import Fundamentals, SignalsReader
 from .clients.yahoo import YahooClient
 from .models import (
@@ -389,6 +390,7 @@ class EtoroTuiApp(App[None]):
         initial_state: AppState | None = None,
         disable_polling: bool = False,
         etoro_client: EtoroClient | None = None,
+        price_stream: EtoroPriceStream | None = None,
     ) -> None:
         super().__init__()
         self._state: AppState = initial_state or AppState(
@@ -400,13 +402,28 @@ class EtoroTuiApp(App[None]):
         )
         self._disable_polling = disable_polling
         self._etoro_client = etoro_client
+        self._price_stream = price_stream
         self._signals = SignalsReader(config.SIGNALS_CSV)
         self._census = CensusReader(config.CENSUS_GLOB_DIR, config.CENSUS_GLOB_PATTERN)
         self._yahoo = YahooClient(ttl_seconds=1800)
         self._db: sqlite3.Connection | None = None
         self._fetch_task: asyncio.Task[None] | None = None
         self._etoro_timer: Timer | None = None
+        self._render_timer: Timer | None = None
         self._market_open: bool = config.is_market_active()
+        # Render-input cache: _tick_portfolio (slow REST) fills these; _tick_render
+        # (fast) rebuilds positions from them + the live WS store.
+        self._raw_positions: list[dict] = []
+        self._credit: float = 0.0
+        self._instruments: dict[int, InstrumentInfo] = {}
+        self._fundamentals: dict[str, Fundamentals] = {}
+        self._pi_pct: dict = {}
+        self._yahoo_prev: dict[str, float] = {}
+        self._inst_overrides: dict[int, str] = {}
+        self._rest_rates: dict[int, dict] = {}
+        self._spark: tuple[float, ...] = ()
+        self._prices_source: str = "—"
+        self._have_portfolio: bool = False
 
     # ------- composition -------
 
@@ -425,27 +442,36 @@ class EtoroTuiApp(App[None]):
             self.query_one(Header).indices = self._demo_indices
         if self._disable_polling:
             return
-        # Auth-required: build client now if not injected.
-        if self._etoro_client is None:
+        # Credentials drive both the REST client and the WS price stream.
+        if self._etoro_client is None or (self._price_stream is None and config.WS_ENABLED):
             try:
                 pk, uk = config.get_credentials()
             except config.AuthMissingError as e:
                 self._set_error(str(e), "down")
                 return
-            self._etoro_client = EtoroClient(public_key=pk, user_key=uk)
+            if self._etoro_client is None:
+                self._etoro_client = EtoroClient(public_key=pk, user_key=uk)
+            if self._price_stream is None and config.WS_ENABLED:
+                self._price_stream = EtoroPriceStream(public_key=pk, user_key=uk)
+        if self._price_stream is not None:
+            await self._price_stream.start()
         poll_s = config.POLL_PORTFOLIO_S if self._market_open else config.POLL_PORTFOLIO_IDLE_S
-        self._etoro_timer = self.set_interval(poll_s, self._tick_etoro)
+        self._etoro_timer = self.set_interval(poll_s, self._tick_portfolio)
+        if self._price_stream is not None:
+            self._render_timer = self.set_interval(config.RENDER_S, self._tick_render)
         self.set_interval(config.POLL_SIGNALS_S, self._tick_overlays)
         self.set_interval(config.SNAPSHOT_S, self._tick_snapshot)
         self.set_interval(1.0, self._tick_footer_clock)
         # Fire first fetch as background task so the UI renders immediately.
-        self._fetch_task = asyncio.create_task(self._tick_etoro())
+        self._fetch_task = asyncio.create_task(self._tick_portfolio())
 
     async def on_unmount(self) -> None:
         # Cancel any in-flight fetch (especially the yfinance to_thread) so
         # the event loop doesn't block waiting for it on shutdown.
         if self._fetch_task is not None and not self._fetch_task.done():
             self._fetch_task.cancel()
+        if self._price_stream is not None:
+            await self._price_stream.aclose()
         if self._etoro_client is not None:
             await self._etoro_client.aclose()
         if self._db is not None:
@@ -453,7 +479,58 @@ class EtoroTuiApp(App[None]):
 
     # ------- timers -------
 
-    async def _tick_etoro(self) -> None:
+    def _current_rates(self) -> dict[int, dict]:
+        """Live WS rates merged over the REST fallback (WS wins per instrument)."""
+        ws = self._price_stream.latest() if self._price_stream is not None else {}
+        if ws:
+            merged = dict(self._rest_rates)
+            merged.update(ws)
+            return merged
+        return self._rest_rates
+
+    def _rerender_positions(self) -> None:
+        """Rebuild Positions from cached portfolio + enrichment + current rates.
+
+        Called by both _tick_portfolio (after a REST refresh) and _tick_render
+        (fast, every RENDER_S) so the two paths can never drift. No network.
+        """
+        if not self._have_portfolio:
+            return
+        rates = self._current_rates()
+        positions_list: list[Position] = []
+        for raw in self._raw_positions:
+            built = _to_position(
+                raw,
+                self._instruments,
+                self._fundamentals,
+                self._pi_pct,
+                rates,
+                self._yahoo_prev,
+                self._inst_overrides,
+            )
+            if built is not None:
+                positions_list.append(built)
+
+        # Aggregate by symbol — eToro splits a holding into many lots; the
+        # user wants one row per ticker with a Pos column showing lot count.
+        positions = _aggregate_by_symbol(positions_list)
+        acct = _account_from(positions, self._credit)
+
+        # live when we have any rates (ws or rest); degraded on census fallback.
+        status: Status = "live" if rates else "degraded"
+        self._state = AppState(
+            account=acct,
+            positions=positions,
+            last_error=None,
+            status=status,
+            equity_sparkline=self._spark,
+        )
+        footer = self.query_one(Footer)
+        footer.prices_source = self._prices_source
+        footer.census_stale = self._census.is_stale
+        self._render_state()
+
+    async def _tick_portfolio(self) -> None:
         # Track ourselves so on_unmount can cancel an in-flight fetch.
         self._fetch_task = asyncio.current_task()
         if self._etoro_client is None:
@@ -467,20 +544,29 @@ class EtoroTuiApp(App[None]):
             self._set_error(f"transient: {e}", "degraded")
             return
 
-        raw_positions = portfolio.get("positions", [])
-        credit = float(portfolio.get("credit", 0.0))
+        self._raw_positions = portfolio.get("positions", [])
+        self._credit = float(portfolio.get("credit", 0.0))
+        self._instruments = self._census.instruments()
+        unique_ids = sorted({raw["instrumentID"] for raw in self._raw_positions})
 
-        instruments = self._census.instruments()
+        # Reconcile WS subscriptions to exactly what we hold.
+        if self._price_stream is not None and unique_ids:
+            await self._price_stream.set_instruments(set(unique_ids))
 
-        # Live prices for everything we hold. If this fails, degrade to census
-        # (yesterday's close) silently so the UI doesn't break.
-        unique_ids = sorted({raw["instrumentID"] for raw in raw_positions})
-        rates: dict[int, dict] = {}
-        prices_live = False
-        if unique_ids:
+        # Choose the price source. The WS stream is authoritative when connected
+        # AND it already has ticks for us; otherwise fall back to the REST rates
+        # endpoint, then to census (handled downstream in _to_position).
+        ws_live = (
+            self._price_stream is not None
+            and self._price_stream.is_connected()
+            and bool(self._price_stream.latest())
+        )
+        if ws_live:
+            self._rest_rates = {}
+            self._prices_source = "live (ws)"
+        elif unique_ids:
             try:
-                rates = await self._etoro_client.fetch_rates(unique_ids)
-                prices_live = bool(rates)
+                self._rest_rates = await self._etoro_client.fetch_rates(unique_ids)
             except EtoroAuthError as e:
                 self._set_error(f"auth failed (rates): {e}", "down")
                 return
@@ -488,52 +574,35 @@ class EtoroTuiApp(App[None]):
                 # Don't block the whole tick on a transient rates failure;
                 # just note it and let positions render with census prices.
                 log.warning("rates fetch failed, using census fallback: %s", e)
+                self._rest_rates = {}
+            self._prices_source = "live (rest)" if self._rest_rates else "census"
+        else:
+            self._rest_rates = {}
+            self._prices_source = "census"
 
-        fundamentals = self._signals.fundamentals()
-        pi_pct = self._census.read()
-        inst_overrides = config.get_instrument_overrides()
+        self._fundamentals = self._signals.fundamentals()
+        self._pi_pct = self._census.read()
+        self._inst_overrides = config.get_instrument_overrides()
 
         # Yahoo previous-closes for everything we hold (indices are fetched
         # separately). Include config-overridden symbols so they get Δday too.
         all_syms_set: set[str] = set()
         for iid in unique_ids:
-            if iid in instruments:
-                all_syms_set.add(instruments[iid].symbol)
-            elif iid in inst_overrides:
-                all_syms_set.add(inst_overrides[iid])
-        all_syms = sorted(all_syms_set)
-        yahoo_prev: dict[str, float] = {}
+            if iid in self._instruments:
+                all_syms_set.add(self._instruments[iid].symbol)
+            elif iid in self._inst_overrides:
+                all_syms_set.add(self._inst_overrides[iid])
         try:
-            yahoo_prev = await self._yahoo.fetch_prev_closes(all_syms)
+            self._yahoo_prev = await self._yahoo.fetch_prev_closes(sorted(all_syms_set))
         except Exception as e:  # noqa: BLE001 — yfinance throws diverse exceptions
             log.warning("yahoo fetch failed, using census fallback: %s", e)
+            self._yahoo_prev = {}
 
-        positions_list: list[Position] = []
-        for raw in raw_positions:
-            built = _to_position(
-                raw,
-                instruments,
-                fundamentals,
-                pi_pct,
-                rates,
-                yahoo_prev,
-                inst_overrides,
-            )
-            if built is not None:
-                positions_list.append(built)
-
-        # Aggregate by symbol — eToro splits a holding into many lots; the
-        # user wants one row per ticker with a Pos column showing lot count.
-        positions = _aggregate_by_symbol(positions_list)
-
-        acct = _account_from(positions, credit)
-
-        spark = ()
         if self._db is not None:
             # Last 4 hours @ 1-min cadence = ~240 points downsampled to width.
             # Short window keeps any pre-fix-era polluted snapshots from
             # dominating the min-max scale and producing a single solid bar.
-            spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
+            self._spark = storage.read_equity_sparkline(self._db, hours=4, max_points=24)
 
         # Indices feed the header bar — priced from Yahoo (NOT the census), so
         # standard market indices always render regardless of whether a popular
@@ -541,24 +610,16 @@ class EtoroTuiApp(App[None]):
         # network/parse failures and returns whatever it has.
         index_specs = config.get_indices()
         index_quotes = await self._yahoo.fetch_index_quotes([sym for _, sym in index_specs])
-        indices = _build_indices(index_specs, index_quotes)
-        self.query_one(Header).indices = indices
+        self.query_one(Header).indices = _build_indices(index_specs, index_quotes)
 
-        # Status reflects rates-fetch outcome too: live only when prices
-        # are also live; degraded when we fell back to census silently.
-        status: Status = "live" if prices_live else "degraded"
-        self._state = AppState(
-            account=acct,
-            positions=positions,
-            last_error=None,
-            status=status,
-            equity_sparkline=spark,
-        )
-        footer = self.query_one(Footer)
-        footer.prices_source = "live" if prices_live else "census"
-        footer.census_stale = self._census.is_stale
-        self._render_state()
+        self._have_portfolio = True
+        self._rerender_positions()
         self._adjust_poll_interval()
+
+    def _tick_render(self) -> None:
+        # Fast path: repaint P&L from the live WS store with no network. Cached
+        # enrichment from the last _tick_portfolio is reused.
+        self._rerender_positions()
 
     def _adjust_poll_interval(self) -> None:
         """Swap the eToro timer when the market opens or closes."""
@@ -569,7 +630,7 @@ class EtoroTuiApp(App[None]):
         new_s = config.POLL_PORTFOLIO_S if now_open else config.POLL_PORTFOLIO_IDLE_S
         if self._etoro_timer is not None:
             self._etoro_timer.stop()
-        self._etoro_timer = self.set_interval(new_s, self._tick_etoro)
+        self._etoro_timer = self.set_interval(new_s, self._tick_portfolio)
         tag = "market open" if now_open else "market closed"
         log.info("poll interval → %ss (%s)", new_s, tag)
 
@@ -658,7 +719,7 @@ class EtoroTuiApp(App[None]):
     # ------- actions -------
 
     async def action_refresh(self) -> None:
-        await self._tick_etoro()
+        await self._tick_portfolio()
 
     def action_sort(self) -> None:
         self.query_one(PositionsTable).cycle_sort()
