@@ -449,31 +449,31 @@ class PositionsTable(Vertical):
 
     def _refresh_table(self) -> None:
         table = self.query_one(DataTable)
+        saved_scroll_y = table.scroll_y
+        saved_cursor = table.cursor_row
         table.clear()
         eq = self.equity if self.equity > 0 else 0
         for p in self._sorted_filtered_positions():
             pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
-            # Price column shows the listing-currency quote (matches Yahoo /
-            # eToro web). USD-quoted instruments fall through to current_rate
-            # since it equals the local quote (OCR=1.0). Non-USD positions
-            # built by _to_position carry quote_price; demo / synthetic
-            # positions without it default to current_rate (USD).
             price = p.quote_price if p.quote_price is not None else p.current_rate
             prev = p.quote_prev if p.quote_prev is not None else p.prev_close
             table.add_row(
                 Text(p.symbol, style="bold"),
-                _money(price),  # Price (decimals)
-                _currency(p.currency),  # Curr (USD / EUR / GBp / HKD / DKK / …)
-                _day_change_pct(price, prev),  # Δday (FX-invariant)
-                _money_int(p.value),  # Value (integer)
-                _eq_pct(pct_eq),  # Allocation
-                _pnl(p.pnl),  # Profit (integer)
-                _pe(p.pe_trailing, "PET"),  # PET
-                _pe(p.pe_forward, "PEF"),  # PEF
-                _upside(p.upside_pct),  # Upside
-                _buy_pct(p.analyst_buy_pct),  # Buy %
-                _buy_momentum(p.analyst_momentum),  # ΔBuy
-                _pi(p.pi_pct),  # PIs
-                _signal(p.signal),  # Signal
+                _money(price),
+                _currency(p.currency),
+                _day_change_pct(price, prev),
+                _money_int(p.value),
+                _eq_pct(pct_eq),
+                _pnl(p.pnl),
+                _pe(p.pe_trailing, "PET"),
+                _pe(p.pe_forward, "PEF"),
+                _upside(p.upside_pct),
+                _buy_pct(p.analyst_buy_pct),
+                _buy_momentum(p.analyst_momentum),
+                _pi(p.pi_pct),
+                _signal(p.signal),
                 key=str(p.position_id),
             )
+        if table.row_count > 0:
+            table.scroll_y = saved_scroll_y
+            table.move_cursor(row=min(saved_cursor, table.row_count - 1))
