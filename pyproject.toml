@@ -31,6 +31,8 @@ dependencies = [
     # Cross-platform credential storage (macOS Keychain, Windows Credential
     # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
     "keyring>=24",
+    # Real-time price stream (eToro WebSocket). asyncio-native; httpx can't do WS.
+    "websockets>=13",
 ]
 
 [project.optional-dependencies]
