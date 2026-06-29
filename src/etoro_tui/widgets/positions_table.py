@@ -447,33 +447,43 @@ class PositionsTable(Vertical):
             rows.sort(key=lambda p: getattr(p, key), reverse=True)
         return rows
 
+    def _row_cells(self, p: Position, eq: float) -> tuple:
+        pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
+        price = p.quote_price if p.quote_price is not None else p.current_rate
+        prev = p.quote_prev if p.quote_prev is not None else p.prev_close
+        return (
+            Text(p.symbol, style="bold"),
+            _money(price),
+            _currency(p.currency),
+            _day_change_pct(price, prev),
+            _money_int(p.value),
+            _eq_pct(pct_eq),
+            _pnl(p.pnl),
+            _pe(p.pe_trailing, "PET"),
+            _pe(p.pe_forward, "PEF"),
+            _upside(p.upside_pct),
+            _buy_pct(p.analyst_buy_pct),
+            _buy_momentum(p.analyst_momentum),
+            _pi(p.pi_pct),
+            _signal(p.signal),
+        )
+
     def _refresh_table(self) -> None:
         table = self.query_one(DataTable)
-        saved_scroll_y = table.scroll_y
-        saved_cursor = table.cursor_row
-        table.clear()
+        rows = self._sorted_filtered_positions()
         eq = self.equity if self.equity > 0 else 0
-        for p in self._sorted_filtered_positions():
-            pct_eq = (p.value / eq * 100) if eq > 0 else 0.0
-            price = p.quote_price if p.quote_price is not None else p.current_rate
-            prev = p.quote_prev if p.quote_prev is not None else p.prev_close
-            table.add_row(
-                Text(p.symbol, style="bold"),
-                _money(price),
-                _currency(p.currency),
-                _day_change_pct(price, prev),
-                _money_int(p.value),
-                _eq_pct(pct_eq),
-                _pnl(p.pnl),
-                _pe(p.pe_trailing, "PET"),
-                _pe(p.pe_forward, "PEF"),
-                _upside(p.upside_pct),
-                _buy_pct(p.analyst_buy_pct),
-                _buy_momentum(p.analyst_momentum),
-                _pi(p.pi_pct),
-                _signal(p.signal),
-                key=str(p.position_id),
-            )
-        if table.row_count > 0:
-            table.scroll_y = saved_scroll_y
-            table.move_cursor(row=min(saved_cursor, table.row_count - 1))
+        col_keys = [spec[1] for spec in _COL_SPECS]
+        new_keys = [str(p.position_id) for p in rows]
+        old_keys = [str(rk.value) for rk in table.rows]
+
+        if new_keys == old_keys:
+            for p in rows:
+                cells = self._row_cells(p, eq)
+                rk = str(p.position_id)
+                for ck, val in zip(col_keys, cells):
+                    table.update_cell(rk, ck, val, update_width=False)
+        else:
+            table.clear()
+            for p in rows:
+                cells = self._row_cells(p, eq)
+                table.add_row(*cells, key=str(p.position_id))
