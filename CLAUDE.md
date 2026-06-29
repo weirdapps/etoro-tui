@@ -68,6 +68,12 @@ tests/
 - Analyst fundamentals: `etorotrade` CSV + `etoro_census` JSON (daily refresh)
 - Local files take priority; GitHub raw is a 6h-cached fallback
 
+## eToro API
+
+Canonical domain: `https://www.etoro.com/api/public/v1`
+Legacy alias: `https://www.etoro.com/api/public/v1` (works but not canonical)
+Auth: X-API-KEY + X-USER-KEY (regular, not PERSONAL) + X-REQUEST-ID (UUID) + User-Agent
+
 ## Column Sort Cycle
 
 Value → Profit → Δday → Upside → Buy% → PEF → Signal → Symbol

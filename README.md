@@ -173,8 +173,8 @@ list = [
 
 | Source | What it provides | Refresh |
 |---|---|---|
-| `public-api.etoro.com /api/v1/trading/info/portfolio` | open positions + cash | live (5s poll) |
-| `public-api.etoro.com /api/v1/market-data/instruments/rates` | last/bid/ask + FX rates | live (5s poll) |
+| `www.etoro.com/api/public /api/v1/trading/info/portfolio` | open positions + cash | live (5s poll) |
+| `www.etoro.com/api/public /api/v1/market-data/instruments/rates` | last/bid/ask + FX rates | live (5s poll) |
 | [`weirdapps/etorotrade`](https://github.com/weirdapps/etorotrade) `etoro.csv` | analyst signals + P/E + upside + buy% + 3-month buy% change | daily (~22:00 UTC) |
 | [`weirdapps/etoro_census`](https://github.com/weirdapps/etoro_census) `etoro-data-*.json` | popular-investor holdings + close prices | daily (~03:00 UTC) |
 

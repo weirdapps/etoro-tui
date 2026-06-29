@@ -10,7 +10,7 @@ do not treat them as a real position.
 
 | Documented (wrong) | Actual |
 |---|---|
-| `https://api.etoro.com` | **`https://public-api.etoro.com`** |
+| `https://api.etoro.com` | **`https://www.etoro.com/api/public`** |
 
 The wrong host returns generic `{"statusCode":404,"message":"Resource not found"}` for every path — the host is reachable but it's NOT the API host.
 
