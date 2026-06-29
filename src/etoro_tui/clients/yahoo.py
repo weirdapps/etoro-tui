@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from typing import Any
 
@@ -36,17 +37,56 @@ _INDEX_TO_YAHOO: dict[str, str] = {
     "NSDQ100": "^NDX",
     "DJ30": "^DJI",
     "EUSTX50": "^STOXX50E",
-    "GER40": "^GDAXI",  # DAX
-    "UK100": "^FTSE",  # FTSE 100
-    "FRA40": "^FCHI",  # CAC 40
-    "JPN225": "^N225",  # Nikkei 225
-    "HKG50": "^HSI",  # Hang Seng
+    "GER40": "^GDAXI",
+    "UK100": "^FTSE",
+    "FRA40": "^FCHI",
+    "JPN225": "^N225",
+    "HKG50": "^HSI",
 }
 
-# eToro crypto symbols are bare bases (BTC, ETH, …); Yahoo uses BTC-USD form.
 _CRYPTO_BASES: frozenset[str] = frozenset(
-    {"BTC", "ETH", "XRP", "BCH", "ADA", "LTC", "EOS", "XLM", "NEO", "TRX", "ZEC", "DASH", "ETC"}
+    {"BTC", "ETH", "XRP", "BCH", "ADA", "LTC", "EOS", "XLM", "NEO", "TRX",
+     "ZEC", "DASH", "ETC", "SOL", "DOGE", "DOT", "LINK", "UNI", "AVAX",
+     "MATIC", "SHIB", "ATOM", "FIL", "NEAR", "APT", "ARB", "OP"}
 )
+
+_COMMODITY_MAP: dict[str, str] = {
+    "GOLD": "GC=F",
+    "OIL": "CL=F",
+    "SILVER": "SI=F",
+    "NATURAL_GAS": "NG=F",
+    "PLATINUM": "PL=F",
+    "COPPER": "HG=F",
+}
+
+_FX_MAP: dict[str, str] = {
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "USDJPY=X",
+}
+
+# eToro symbol → Yahoo symbol for instruments that don't translate directly.
+# Source: etorotrade/trade_modules/config_manager.py
+_DATA_FETCH_SUBSTITUTIONS: dict[str, str] = {
+    "LYXGRE.DE": "GRE.PA",
+}
+
+# eToro exchange suffixes that differ from Yahoo.
+_SUFFIX_REMAP: dict[str, str] = {
+    ".NV": ".AS",       # Euronext Amsterdam
+    ".ASX": ".AX",      # Australian Securities Exchange
+    ".ZU": ".SW",       # SIX Swiss Exchange
+    ".LSB": ".LS",      # Euronext Lisbon
+}
+
+# Copenhagen share classes: eToro omits the hyphen (NOVOB.CO → NOVO-B.CO)
+_COPENHAGEN_SHARE_CLASSES: dict[str, str] = {
+    "NOVOB.CO": "NOVO-B.CO",
+    "MAERSKB.CO": "MAERSK-B.CO",
+    "COLOB.CO": "COLO-B.CO",
+}
+
+_HK_RE = re.compile(r"^0+(\d+)\.HK$", re.IGNORECASE)
 
 
 def to_yahoo_symbol(etoro_symbol: str) -> str | None:
@@ -57,7 +97,26 @@ def to_yahoo_symbol(etoro_symbol: str) -> str | None:
         return _INDEX_TO_YAHOO[s]
     if s in _CRYPTO_BASES:
         return f"{s}-USD"
-    return s  # US tickers + dotted listings pass through
+    if s in _COMMODITY_MAP:
+        return _COMMODITY_MAP[s]
+    if s in _FX_MAP:
+        return _FX_MAP[s]
+    if s in _DATA_FETCH_SUBSTITUTIONS:
+        return _DATA_FETCH_SUBSTITUTIONS[s]
+    if s in _COPENHAGEN_SHARE_CLASSES:
+        return _COPENHAGEN_SHARE_CLASSES[s]
+    # .NV → .AS, .ASX → .AX, etc.
+    for etoro_sfx, yahoo_sfx in _SUFFIX_REMAP.items():
+        if s.endswith(etoro_sfx):
+            return s[: -len(etoro_sfx)] + yahoo_sfx
+    # HK: strip leading zeros (Yahoo expects 700.HK not 0700.HK)
+    m = _HK_RE.match(s)
+    if m:
+        return f"{m.group(1)}.HK"
+    # Strip .US suffix (eToro API quirk for US stocks)
+    if s.endswith(".US"):
+        return s[:-3]
+    return s
 
 
 def _extract_prev_close(df: pd.DataFrame, yahoo_sym: str) -> float | None:
