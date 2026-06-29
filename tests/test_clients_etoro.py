@@ -31,7 +31,7 @@ _PORTFOLIO_OK = {
 
 @pytest.mark.asyncio
 async def test_fetch_portfolio_sets_headers():
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         route = mock.get("/api/v1/trading/info/portfolio").respond(200, json=_PORTFOLIO_OK)
         client = EtoroClient(public_key="pk", user_key="uk")
         await client.fetch_portfolio()
@@ -45,7 +45,7 @@ async def test_fetch_portfolio_sets_headers():
 @pytest.mark.asyncio
 async def test_fetch_portfolio_returns_clientPortfolio_inner_dict():
     """Client unwraps the `clientPortfolio` wrapper so callers see {positions, credit, ...}."""
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         mock.get("/api/v1/trading/info/portfolio").respond(200, json=_PORTFOLIO_OK)
         client = EtoroClient("pk", "uk")
         data = await client.fetch_portfolio()
@@ -57,7 +57,7 @@ async def test_fetch_portfolio_returns_clientPortfolio_inner_dict():
 
 @pytest.mark.asyncio
 async def test_401_raises_auth_error_no_retry():
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         route = mock.get("/api/v1/trading/info/portfolio").respond(
             401, json={"error": "Unauthorized"}
         )
@@ -70,7 +70,7 @@ async def test_401_raises_auth_error_no_retry():
 
 @pytest.mark.asyncio
 async def test_429_retries_then_raises_transient():
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         route = mock.get("/api/v1/trading/info/portfolio").respond(
             429, json={"error": "RateLimited"}
         )
@@ -83,7 +83,7 @@ async def test_429_retries_then_raises_transient():
 
 @pytest.mark.asyncio
 async def test_429_then_200_succeeds():
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         route = mock.get("/api/v1/trading/info/portfolio")
         route.side_effect = [
             httpx.Response(429, json={"error": "RateLimited"}),
@@ -105,7 +105,7 @@ async def test_no_sleep_after_final_attempt(monkeypatch):
         sleep_calls.append(d)
 
     monkeypatch.setattr("asyncio.sleep", fake_sleep)
-    async with respx.mock(base_url="https://public-api.etoro.com") as mock:
+    async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
         mock.get("/api/v1/trading/info/portfolio").respond(429)
         client = EtoroClient("pk", "uk", max_retries=3, backoff_seconds=(1, 2, 3))
         with pytest.raises(EtoroTransientError):

@@ -1,7 +1,7 @@
 # src/etoro_tui/clients/etoro.py
 """Async eToro REST client with retry+backoff.
 
-Hits `https://public-api.etoro.com/api/v1/trading/info/portfolio` — the only
+Hits `https://www.etoro.com/api/public/v1/trading/info/portfolio` — the only
 real-data endpoint we found that works for retail accounts. Returns the raw
 `clientPortfolio` dict (positions list + credit). Conversion to dataclasses
 happens in app.py so this module stays free of model dependencies.

@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 # ---- baked-in defaults ----
 
-ETORO_BASE_URL = "https://public-api.etoro.com"
+ETORO_BASE_URL = "https://www.etoro.com/api/public"
 
 # Refresh intervals (seconds). Override via TOML [intervals].
 POLL_PORTFOLIO_S = 30

@@ -191,7 +191,7 @@ Initial implementation. Not released to PyPI.
 
 ### Added
 
-- Async eToro REST client (`public-api.etoro.com/api/v1/...`) with retry +
+- Async eToro REST client (`www.etoro.com/api/public/v1/...`) with retry +
   exponential backoff. Live polling of `/trading/info/portfolio` and
   `/market-data/instruments/rates` every 5 seconds.
 - **Aggregated-by-ticker** position rows — many lots per symbol collapsed
