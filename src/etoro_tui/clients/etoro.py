@@ -119,10 +119,7 @@ class EtoroClient:
         out: dict[int, str] = {}
         for i in range(0, len(instrument_ids), batch_size):
             batch = instrument_ids[i : i + batch_size]
-            path = (
-                "/v1/market-data/instruments"
-                f"?instrumentIds={','.join(str(x) for x in batch)}"
-            )
+            path = f"/v1/market-data/instruments?instrumentIds={','.join(str(x) for x in batch)}"
             try:
                 resp = await self._get(path)
             except (EtoroAuthError, EtoroTransientError):
@@ -163,8 +160,7 @@ class EtoroClient:
         for i in range(0, len(instrument_ids), batch_size):
             batch = instrument_ids[i : i + batch_size]
             path = (
-                "/v1/market-data/instruments/rates"
-                f"?instrumentIds={','.join(str(x) for x in batch)}"
+                f"/v1/market-data/instruments/rates?instrumentIds={','.join(str(x) for x in batch)}"
             )
             resp = await self._get(path)
             for r in resp.get("rates", []):

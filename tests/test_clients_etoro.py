@@ -58,9 +58,7 @@ async def test_fetch_portfolio_returns_clientPortfolio_inner_dict():
 @pytest.mark.asyncio
 async def test_401_raises_auth_error_no_retry():
     async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
-        route = mock.get("/v1/trading/info/portfolio").respond(
-            401, json={"error": "Unauthorized"}
-        )
+        route = mock.get("/v1/trading/info/portfolio").respond(401, json={"error": "Unauthorized"})
         client = EtoroClient("pk", "uk")
         with pytest.raises(EtoroAuthError):
             await client.fetch_portfolio()
@@ -71,9 +69,7 @@ async def test_401_raises_auth_error_no_retry():
 @pytest.mark.asyncio
 async def test_429_retries_then_raises_transient():
     async with respx.mock(base_url="https://www.etoro.com/api/public") as mock:
-        route = mock.get("/v1/trading/info/portfolio").respond(
-            429, json={"error": "RateLimited"}
-        )
+        route = mock.get("/v1/trading/info/portfolio").respond(429, json={"error": "RateLimited"})
         client = EtoroClient("pk", "uk", max_retries=3, backoff_seconds=(0, 0, 0))
         with pytest.raises(EtoroTransientError):
             await client.fetch_portfolio()

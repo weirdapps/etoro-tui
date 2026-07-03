@@ -576,7 +576,11 @@ class EtoroTuiApp(App[None]):
         unique_ids = sorted({raw["instrumentID"] for raw in self._raw_positions})
 
         # Fill gaps: instrument IDs not in census → resolve via live API, cache result
-        missing_ids = [iid for iid in unique_ids if iid not in self._instruments and iid not in self._api_symbol_cache]
+        missing_ids = [
+            iid
+            for iid in unique_ids
+            if iid not in self._instruments and iid not in self._api_symbol_cache
+        ]
         if missing_ids:
             try:
                 api_syms = await self._etoro_client.fetch_instrument_symbols(missing_ids)
