@@ -25,7 +25,7 @@ class Position:
     open_ts: datetime
     # overlays — None means unavailable
     signal: Signal | None = None  # I (inconclusive) → None
-    pi_pct: float | None = None  # 0.0–100.0
+    pi_pct: float | None = None  # % of top-100 most-copied PIs holding, 0.0–100.0
     position_count: int = 1  # >1 when this row aggregates several raw positions
     # Fundamentals (etorotrade CSV, daily refresh; None for ETFs/crypto/illiquid):
     pe_trailing: float | None = None  # trailing 12m P/E

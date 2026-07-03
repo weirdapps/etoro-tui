@@ -23,7 +23,7 @@ Column labels are deliberately precise so nothing is mistaken for live data:
   Buy %     — % of analyst recs = BUY (DAILY)
   ΔBuy      — change in Buy % over the past 3 months (etorotrade AM, DAILY)
               ▲ upgrades / ▼ downgrades — bright when ≥|5|pp
-  PIs       — % of eToro popular investors holding (DAILY)
+  PIs       — % of the top-100 most-copied eToro popular investors holding (DAILY)
   Signal    — etorotrade BUY / SELL / HOLD (DAILY)
 
 Lots and per-position Units live in the detail panel — for daily glance the
@@ -213,11 +213,28 @@ def _signal(s: str | None) -> Text:
 
 
 def _pi(p: float | None) -> Text:
+    """% of top-100 PIs holding — a distinct hue per crowding band.
+
+    Shades of one colour read as identical in the terminal, so each band gets
+    its own hue:
+
+      ≥25% → bold green (very crowded)   10–25% → cyan (crowded)
+      5–10% → yellow (moderate)          <5% → dim (light)
+      <0.5% → dim "<1%"                  missing → dim "—"
+    """
     if p is None:
         return _cell("—", "PIs", style="dim")
     if p < 0.5:
         return _cell("<1%", "PIs", style="dim")
-    return _cell(f"{p:.0f}%", "PIs")
+    if p >= 25:
+        style = "bold green"
+    elif p >= 10:
+        style = "cyan"
+    elif p >= 5:
+        style = "yellow"
+    else:
+        style = "dim"
+    return _cell(f"{p:.0f}%", "PIs", style=style)
 
 
 def _day_change_pct(curr: float, prev: float | None) -> Text:
@@ -482,7 +499,7 @@ class PositionsTable(Vertical):
             return
         for rk_str, p in pos_map.items():
             cells = self._row_cells(p, eq)
-            for ck, val in zip(col_keys, cells):
+            for ck, val in zip(col_keys, cells, strict=False):
                 table.update_cell(rk_str, ck, val, update_width=False)
 
     def _rebuild_table(self) -> None:
