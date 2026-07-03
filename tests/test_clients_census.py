@@ -17,6 +17,24 @@ def _disable_github_fallback(monkeypatch):
     monkeypatch.setattr(census_module, "fetch_newest_census_file", lambda: None)
 
 
+def _census_json(details: list, price_data: list, investors: list) -> str:
+    """Serialise a census payload with the three sections read() depends on."""
+    return json.dumps(
+        {
+            "instruments": {"details": details, "priceData": price_data},
+            "investors": investors,
+        }
+    )
+
+
+def _investor(copiers: int, held_ids: list[int]) -> dict:
+    """One census investor with a copier count and a set of held instrument ids."""
+    return {
+        "copiers": copiers,
+        "portfolio": {"positions": [{"instrumentId": i} for i in held_ids]},
+    }
+
+
 def test_aggregates_pi_holdings(tmp_census_dir: Path):
     r = CensusReader(tmp_census_dir, "etoro-data-*.json")
     out = r.read()
@@ -141,3 +159,96 @@ def test_missing_required_key_falls_back_to_cache(tmp_census_dir: Path):
     second = r.read()
     assert second == first
     assert r.is_stale is True
+
+
+def test_pi_denominator_caps_at_top_100_most_copied(tmp_path: Path):
+    """PI% is computed over the 100 most-copied investors, not the whole census.
+
+    150 investors, copiers descending so investor 0 is most-copied:
+      YSYM — held by all 150 → 100/100 among the top-100 → 100%
+      XSYM — held by the 50 most-copied → 50/100 → 50%
+      ZSYM — held only by the 30 least-copied (outside the top-100) → excluded
+    """
+    d = tmp_path / "census"
+    d.mkdir()
+    details = [
+        {"instrumentId": 1001, "symbolFull": "XSYM"},
+        {"instrumentId": 1002, "symbolFull": "YSYM"},
+        {"instrumentId": 1003, "symbolFull": "ZSYM"},
+    ]
+    price = [
+        {"instrumentId": 1001, "currentPrice": 1.0},
+        {"instrumentId": 1002, "currentPrice": 1.0},
+        {"instrumentId": 1003, "currentPrice": 1.0},
+    ]
+    investors = []
+    for i in range(150):
+        held = [1002]  # Y held by everyone
+        if i < 50:
+            held.append(1001)  # X held by the 50 most-copied
+        if i >= 120:
+            held.append(1003)  # Z held by the 30 least-copied (outside top-100)
+        investors.append(_investor(copiers=150 - i, held_ids=held))
+    (d / "etoro-data-2026-05-04-03-00.json").write_text(_census_json(details, price, investors))
+
+    out = CensusReader(d, "etoro-data-*.json").read()
+    assert out["YSYM"] == 100.0
+    assert out["XSYM"] == 50.0
+    assert "ZSYM" not in out
+
+
+def test_empty_details_falls_back_to_newest_valid_file(tmp_census_dir: Path):
+    """A newest file with an empty instrument list is skipped for the last valid one.
+
+    This is the real-world corruption seen 2026-06-27/28: investors present but
+    `instruments.details` empty, so no id→symbol translation is possible. The
+    reader must fall back to the newest structurally-complete file — even with no
+    prior in-memory cache (cold start) — and flag the result as stale.
+    """
+    newer = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    newer.write_text(_census_json([], [], [{"portfolio": {"positions": [{"instrumentId": 1001}]}}]))
+
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")  # fresh: no prior cache
+    assert r.read() == {"AAPL": 75.0, "TSLA": 50.0, "MSFT": 25.0}
+    assert r.is_stale is True
+
+
+def test_empty_price_data_falls_back_to_newest_valid_file(tmp_census_dir: Path):
+    """A file with symbols but no priceData is structurally incomplete → skipped."""
+    newer = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    newer.write_text(
+        _census_json(
+            [{"instrumentId": 1001, "symbolFull": "AAPL"}],
+            [],
+            [{"portfolio": {"positions": [{"instrumentId": 1001}]}}],
+        )
+    )
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")
+    assert r.read()["AAPL"] == 75.0
+    assert r.is_stale is True
+
+
+def test_empty_investors_falls_back_to_newest_valid_file(tmp_census_dir: Path):
+    """A file with instruments but no investors carries no PI signal → skipped."""
+    newer = tmp_census_dir / "etoro-data-2026-05-05-03-00.json"
+    newer.write_text(
+        _census_json(
+            [{"instrumentId": 1001, "symbolFull": "AAPL"}],
+            [{"instrumentId": 1001, "currentPrice": 1.0}],
+            [],
+        )
+    )
+    r = CensusReader(tmp_census_dir, "etoro-data-*.json")
+    assert r.read()["AAPL"] == 75.0
+    assert r.is_stale is True
+
+
+def test_all_files_invalid_returns_empty_not_stale(tmp_path: Path):
+    """When no file anywhere is structurally complete, return empty without a stale flag."""
+    d = tmp_path / "census"
+    d.mkdir()
+    (d / "etoro-data-2026-05-04-03-00.json").write_text(_census_json([], [], []))
+    (d / "etoro-data-2026-05-05-03-00.json").write_text(_census_json([], [], []))
+    r = CensusReader(d, "etoro-data-*.json")
+    assert r.read() == {}
+    assert r.is_stale is False
