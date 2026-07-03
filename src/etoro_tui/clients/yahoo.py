@@ -45,9 +45,35 @@ _INDEX_TO_YAHOO: dict[str, str] = {
 }
 
 _CRYPTO_BASES: frozenset[str] = frozenset(
-    {"BTC", "ETH", "XRP", "BCH", "ADA", "LTC", "EOS", "XLM", "NEO", "TRX",
-     "ZEC", "DASH", "ETC", "SOL", "DOGE", "DOT", "LINK", "UNI", "AVAX",
-     "MATIC", "SHIB", "ATOM", "FIL", "NEAR", "APT", "ARB", "OP"}
+    {
+        "BTC",
+        "ETH",
+        "XRP",
+        "BCH",
+        "ADA",
+        "LTC",
+        "EOS",
+        "XLM",
+        "NEO",
+        "TRX",
+        "ZEC",
+        "DASH",
+        "ETC",
+        "SOL",
+        "DOGE",
+        "DOT",
+        "LINK",
+        "UNI",
+        "AVAX",
+        "MATIC",
+        "SHIB",
+        "ATOM",
+        "FIL",
+        "NEAR",
+        "APT",
+        "ARB",
+        "OP",
+    }
 )
 
 _COMMODITY_MAP: dict[str, str] = {
@@ -73,10 +99,10 @@ _DATA_FETCH_SUBSTITUTIONS: dict[str, str] = {
 
 # eToro exchange suffixes that differ from Yahoo.
 _SUFFIX_REMAP: dict[str, str] = {
-    ".NV": ".AS",       # Euronext Amsterdam
-    ".ASX": ".AX",      # Australian Securities Exchange
-    ".ZU": ".SW",       # SIX Swiss Exchange
-    ".LSB": ".LS",      # Euronext Lisbon
+    ".NV": ".AS",  # Euronext Amsterdam
+    ".ASX": ".AX",  # Australian Securities Exchange
+    ".ZU": ".SW",  # SIX Swiss Exchange
+    ".LSB": ".LS",  # Euronext Lisbon
 }
 
 # Copenhagen share classes: eToro omits the hyphen (NOVOB.CO → NOVO-B.CO)
