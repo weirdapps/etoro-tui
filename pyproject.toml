@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     "textual>=0.86",
     "httpx>=0.28",
-    "yfinance>=0.2.40,<1.5",
+    "yfinance>=0.2.40,<1.6",
     # Cross-platform credential storage (macOS Keychain, Windows Credential
     # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
     "keyring>=24",
