@@ -262,7 +262,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.7" },
     { name = "textual", specifier = ">=0.86" },
     { name = "websockets", specifier = ">=13" },
-    { name = "yfinance", specifier = ">=0.2.40,<1.5" },
+    { name = "yfinance", specifier = ">=0.2.40,<1.6" },
 ]
 provides-extras = ["dev"]
 
