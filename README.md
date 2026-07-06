@@ -193,8 +193,9 @@ list = [
 | Source | What it provides | Refresh cadence |
 |---|---|---|
 | `wss://ws.etoro.com/ws` | Streaming price ticks per position | live (WebSocket) |
-| `https://www.etoro.com/api/public/api/v1/trading/info/portfolio` | Open positions and cash balance | 30 s (10 min off-hours) |
-| `https://www.etoro.com/api/public/api/v1/market-data/instruments/rates` | Last / bid / ask and FX rates | 30 s (10 min off-hours) |
+| `https://www.etoro.com/api/public/v1/trading/info/portfolio` | Open positions and cash balance | 30 s (10 min off-hours) |
+| `https://www.etoro.com/api/public/v1/market-data/instruments/rates` | Last / bid / ask and FX rates (REST fallback when WS is not connected) | 30 s (10 min off-hours) |
+| `https://www.etoro.com/api/public/v1/market-data/instruments` | Resolves `instrumentID` to ticker symbol for positions missing from census | on demand |
 | [`weirdapps/etorotrade`](https://github.com/weirdapps/etorotrade) `etoro.csv` | Analyst signals, P/E, upside, buy%, 3-month buy-% change | daily (~22:00 UTC) |
 | [`weirdapps/etoro_census`](https://github.com/weirdapps/etoro_census) `etoro-data-*.json` | Popular-investor holding rate, yesterday's close | daily |
 | Yahoo Finance (index quotes) | Header index prices via `yfinance` | 30 min TTL |
@@ -244,7 +245,7 @@ The "does / does not" section and the "read-only key" note above capture the des
 What is hardened:
 
 - Sensitive files in `~/.etoro-tui/` (`snapshots.db`, `.env`, `etoro-tui.log`) are written at mode `0o600`; the directory itself is `0o700`. POSIX-only; Windows users should rely on user-account isolation or the system keyring instead of the `.env` file.
-- `.env` writes use `os.open(O_CREAT|O_EXCL, mode=0o600)` to avoid TOCTOU.
+- `.env` writes use `os.open(O_CREAT|O_WRONLY|O_TRUNC, mode=0o600)` to close the brief TOCTOU window that `write_text()` + `chmod()` would leave open at the default umask.
 - HTTPS hardcoded, no plaintext fallback.
 - All SQL queries parameterized.
 - httpx logs pinned to WARNING (no request URLs, no headers in the log file).
