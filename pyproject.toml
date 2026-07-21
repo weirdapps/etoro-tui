@@ -32,7 +32,7 @@ dependencies = [
     # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
     "keyring>=24",
     # Real-time price stream (eToro WebSocket). asyncio-native; httpx can't do WS.
-    "websockets>=16.1",
+    "websockets>=16.1.1",
 ]
 
 [project.optional-dependencies]
@@ -40,7 +40,7 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "respx>=0.21",
-    "ruff>=0.15.21",
+    "ruff>=0.15.22",
 ]
 
 [project.scripts]
