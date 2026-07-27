@@ -4,16 +4,23 @@ Replaces the unreliable census `currentPrice` field as the "yesterday's close"
 baseline for the header Δ% and the per-position Δday column. Census `currentPrice`
 can be multi-day stale for some instruments (e.g. NVDA stuck on Friday's close
 for three trading days running), making the daily Δ visibly wrong vs eToro web.
-Yahoo's previous-close updates reliably after each session close, so the
-daily Δ now matches what eToro web / Yahoo Finance show.
+
+The previous close comes from Yahoo's authoritative `fast_info.previous_close`
+— the close of the last COMPLETED session, computed by Yahoo per-exchange. We
+deliberately do NOT infer it positionally from daily bars (e.g. the second-to-
+last `yf.download` row): that assumes the last bar is always today's in-progress
+session, which is false pre-market and whenever Yahoo's daily window lags a
+session. Pre-market that off-by-one straddled a crash day and reported a phantom
+−16% Δday. `fast_info` also gives us `last_price` for the header index level.
 
 Lookup is best-effort: anything Yahoo doesn't know (eToro-internal CFD tickers,
 weird crypto, network failure) is silently omitted from the response, and the
 caller falls back to census. Cached for 30 min by default — Yahoo's previous
 close is stable through the trading day, no need to hammer it.
 
-yfinance is sync; we wrap it in `asyncio.to_thread` to keep the Textual event
-loop responsive on the cold-cache fetch (~1-3 s for ~40 symbols batched).
+yfinance is sync; we fetch symbols concurrently in a thread pool wrapped in
+`asyncio.to_thread` to keep the Textual event loop responsive on the cold-cache
+fetch (~0.4 s for ~40 symbols).
 """
 
 from __future__ import annotations
@@ -22,9 +29,8 @@ import asyncio
 import logging
 import re
 import time
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
 
-import pandas as pd
 import yfinance as yf
 
 log = logging.getLogger(__name__)
@@ -145,48 +151,24 @@ def to_yahoo_symbol(etoro_symbol: str) -> str | None:
     return s
 
 
-def _extract_prev_close(df: pd.DataFrame, yahoo_sym: str) -> float | None:
-    """Pick the second-to-last Close from a yf.download response. Last bar is
-    today's intraday; one before is yesterday's close. Returns None on NaN /
-    missing column / single-row data.
+def _fetch_quote(yahoo_sym: str) -> tuple[float | None, float | None]:
+    """Return (last_price, previous_close) for one Yahoo ticker via fast_info.
 
-    NaN rows are dropped first — batch downloads that include 24/7 instruments
-    (BTC) extend the date index with weekend rows where stocks have NaN."""
+    `previous_close` is Yahoo's authoritative close of the last completed
+    session — correct pre-market, intraday, and after-hours, per exchange — so
+    the Δday reference never depends on guessing which daily bar is "today".
+    Best-effort: any failure (unknown ticker, network, missing field) yields
+    (None, None) and the caller omits the symbol (census fallback)."""
     try:
-        if isinstance(df.columns, pd.MultiIndex):
-            closes = df[(yahoo_sym, "Close")]
-        else:
-            closes = df["Close"]
-    except KeyError:
-        return None
-    closes = closes.dropna()
-    if len(closes) < 2:
-        return None
-    val = closes.iloc[-2]
-    return float(val) if val is not None and val > 0 else None
-
-
-def _extract_last_two(df: pd.DataFrame, yahoo_sym: str) -> tuple[float, float] | None:
-    """Return (last, prev) daily closes for an index — last bar ≈ today's live
-    level, the one before it = previous session's close. NaNs are dropped first
-    so a pre-market/holiday gap shows the prior move instead of blanking the
-    index. With only one valid close, prev = last (renders at 0% rather than
-    vanishing). Returns None when there's no usable close at all."""
-    try:
-        if isinstance(df.columns, pd.MultiIndex):
-            closes = df[(yahoo_sym, "Close")]
-        else:
-            closes = df["Close"]
-    except KeyError:
-        return None
-    closes = closes.dropna()
-    if len(closes) == 0:
-        return None
-    last = float(closes.iloc[-1])
-    if last <= 0:
-        return None
-    prev = float(closes.iloc[-2]) if len(closes) >= 2 else last
-    return last, prev
+        fi = yf.Ticker(yahoo_sym).fast_info
+        last = fi.last_price
+        prev = fi.previous_close
+        return (
+            float(last) if last is not None else None,
+            float(prev) if prev is not None else None,
+        )
+    except Exception:  # noqa: BLE001 — yfinance raises diverse types; degrade gracefully
+        return None, None
 
 
 class YahooClient:
@@ -222,27 +204,27 @@ class YahooClient:
         if not needed:
             return out
         try:
-            df = await asyncio.to_thread(self._download, list(needed))
+            quotes = await asyncio.to_thread(self._fetch_many, list(needed))
         except Exception as e:  # noqa: BLE001 — yfinance raises diverse types
-            log.warning("yfinance download failed: %s", e)
-            return out
-        if df is None or df.empty:
+            log.warning("yfinance quote fetch failed: %s", e)
             return out
         for ys, es in needed.items():
-            val = _extract_prev_close(df, ys)
-            if val is not None and val > 0:
-                self._cache[es] = (val, now)
-                out[es] = val
+            _, prev = quotes.get(ys, (None, None))
+            if prev is not None and prev > 0:
+                self._cache[es] = (prev, now)
+                out[es] = prev
         return out
 
     async def fetch_index_quotes(self, etoro_symbols: list[str]) -> dict[str, tuple[float, float]]:
         """Return {etoro_symbol_upper: (last, prev_close)} for header indices.
 
-        Both values come straight from Yahoo's daily bars, decoupled from the
+        Both values come straight from Yahoo's fast_info, decoupled from the
         eToro census — so standard market indices (S&P, Dow, …) always render
         regardless of whether a popular investor happens to hold a CFD on them.
-        Symbols Yahoo can't resolve are silently omitted. Cached per symbol for
-        index_ttl_seconds so the 5s header poll doesn't hammer Yahoo."""
+        A symbol with a last price but no previous close renders at 0% (prev =
+        last) rather than vanishing. Symbols Yahoo can't resolve are silently
+        omitted. Cached per symbol for index_ttl_seconds so the 5s header poll
+        doesn't hammer Yahoo."""
         now = time.monotonic()
         out: dict[str, tuple[float, float]] = {}
         needed: dict[str, str] = {}  # yahoo_sym → etoro_sym(upper)
@@ -258,27 +240,26 @@ class YahooClient:
         if not needed:
             return out
         try:
-            df = await asyncio.to_thread(self._download, list(needed))
+            quotes = await asyncio.to_thread(self._fetch_many, list(needed))
         except Exception as e:  # noqa: BLE001 — yfinance raises diverse types
-            log.warning("yfinance index download failed: %s", e)
-            return out
-        if df is None or df.empty:
+            log.warning("yfinance index quote fetch failed: %s", e)
             return out
         for ys, key in needed.items():
-            pair = _extract_last_two(df, ys)
-            if pair is not None:
-                self._index_cache[key] = (pair, now)
-                out[key] = pair
+            last, prev = quotes.get(ys, (None, None))
+            if last is None or last <= 0:
+                continue
+            prev_ok = prev if (prev is not None and prev > 0) else last
+            pair = (last, prev_ok)
+            self._index_cache[key] = (pair, now)
+            out[key] = pair
         return out
 
-    def _download(self, yahoo_tickers: list[str]) -> Any:
-        """Sync yfinance call. period='5d' is enough to survive weekends +
-        holidays and still give us yesterday's close as the second-to-last bar."""
-        return yf.download(
-            yahoo_tickers,
-            period="5d",
-            interval="1d",
-            progress=False,
-            group_by="ticker",
-            auto_adjust=False,
-        )
+    @staticmethod
+    def _fetch_many(yahoo_syms: list[str]) -> dict[str, tuple[float | None, float | None]]:
+        """Fetch (last, prev) for every ticker concurrently. Sync — call inside
+        asyncio.to_thread. yfinance's fast_info is per-ticker HTTP, so a small
+        thread pool keeps the cold-cache fetch to ~0.4 s for a full portfolio."""
+        if not yahoo_syms:
+            return {}
+        with ThreadPoolExecutor(max_workers=min(12, len(yahoo_syms))) as ex:
+            return dict(zip(yahoo_syms, ex.map(_fetch_quote, yahoo_syms), strict=True))
