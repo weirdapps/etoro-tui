@@ -31,7 +31,7 @@
 - Streams live prices via the eToro WebSocket (`wss://ws.etoro.com/ws`) with a REST poll fallback every 30 seconds. Price column shows the listing-currency quote; Value, Profit, and Allocation roll up in USD.
 - Overlays analyst fundamentals (trailing / forward P/E, target upside, buy%, 3-month buy-% change) and BUY / HOLD / SELL signals from `weirdapps/etorotrade`.
 - Overlays popular-investor holding rate from `weirdapps/etoro_census`.
-- Displays yesterday's close and USD-adjusted day change from the census `priceData` payload.
+- Displays the last completed session's close and the USD-adjusted day change, sourced from Yahoo `previous_close` and falling back to the census `priceData` payload when Yahoo cannot price the symbol.
 - Stores 1-minute equity snapshots locally in `~/.etoro-tui/snapshots.db` for the header sparkline and today's baseline.
 
 **Does NOT:**
@@ -47,7 +47,7 @@
 
 - **Live prices via WebSocket.** `wss://ws.etoro.com/ws` streams price ticks in the background; the UI re-renders at ~1.5 s cadence. REST polling of `/portfolio` and `/market-data/instruments/rates` runs every 30 s during market hours (10 minutes off-hours and weekends).
 - **Bloomberg-style color grading.** Three-tier intensity (bold bright, normal, dim) on Δday and Profit so magnitude reads at a glance. Magnitude-coded triangles (▲, ▴, ▾, ▼) encode direction and size in one glyph.
-- **Honest day-change.** Δday computed from yesterday's close (census `priceData`) with FX-adjustment to USD, not lifetime return relabeled.
+- **Honest day-change.** Δday computed from the last completed session's close (Yahoo `previous_close`, census `priceData` as fallback) with FX-adjustment to USD, not lifetime return relabeled.
 - **Parametric flex columns.** Table fills any terminal width via per-column minimum plus flex weights. Verified at 140, 180, 220, and 240 columns.
 - **Inline header indices.** S&P 500, Dow 30, NASDAQ, DAX, FTSE 100, EuroStx50 (order + selection configurable). Up to 3 fit the top bar; the bar auto-fits based on terminal width.
 - **Aggregated by ticker.** Multiple lots per symbol collapse into one row with weighted-average open and total P&L.
@@ -197,8 +197,8 @@ list = [
 | `https://www.etoro.com/api/public/v1/market-data/instruments/rates` | Last / bid / ask and FX rates (REST fallback when WS is not connected) | 30 s (10 min off-hours) |
 | `https://www.etoro.com/api/public/v1/market-data/instruments` | Resolves `instrumentID` to ticker symbol for positions missing from census | on demand |
 | [`weirdapps/etorotrade`](https://github.com/weirdapps/etorotrade) `etoro.csv` | Analyst signals, P/E, upside, buy%, 3-month buy-% change | daily (~22:00 UTC) |
-| [`weirdapps/etoro_census`](https://github.com/weirdapps/etoro_census) `etoro-data-*.json` | Popular-investor holding rate, yesterday's close | daily |
-| Yahoo Finance (index quotes) | Header index prices via `yfinance` | 30 min TTL |
+| [`weirdapps/etoro_census`](https://github.com/weirdapps/etoro_census) `etoro-data-*.json` | Popular-investor holding rate (share of the top-100 most-copied PIs), fallback price and previous close | daily |
+| Yahoo Finance via `yfinance` | Header index quotes; per-position previous close for Δday | 2 min TTL for indices, 30 min TTL for previous closes |
 
 Local files (if you have the source repos cloned under `~/SourceCode/`) take priority. Otherwise the daily-refreshed datasets are pulled from the GitHub raw URL / Contents API and cached under `~/.etoro-tui/cache/`.
 
