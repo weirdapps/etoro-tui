@@ -1,0 +1,14 @@
+name: Dependabot auto-merge
+'on': pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Shared implementation. Native `gh pr merge --auto` cannot work here
+    # (branch protection is a paid feature on private repos, and
+    # allow_auto_merge silently no-ops), so the reusable polls this PR's own
+    # checks and merges once they are green. Majors stay open for review.
+    uses: weirdapps/shared-workflows/.github/workflows/dependabot-auto-merge.yml@main
