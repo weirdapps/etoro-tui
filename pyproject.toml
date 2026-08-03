@@ -32,7 +32,7 @@ dependencies = [
     # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
     "keyring>=24",
     # Real-time price stream (eToro WebSocket). asyncio-native; httpx can't do WS.
-    "websockets>=16.1.1",
+    "websockets>=17.0.1",
 ]
 
 [project.optional-dependencies]
