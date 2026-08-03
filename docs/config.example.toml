@@ -45,5 +45,13 @@ list = [
 # poll_portfolio_idle = 600   # outside market hours / weekends
 # poll_signals        = 30
 # snapshot            = 60
+# render              = 1.5   # UI re-render cadence from the live WS price store
 # market_open_utc     = 7     # hour (0-23) — start of active polling
 # market_close_utc    = 22    # hour (0-23) — end of active polling
+
+# -- Live price stream --------------------------------------------------------
+# etoro-tui streams prices from wss://ws.etoro.com/ws and falls back to REST
+# polling of /market-data/instruments/rates whenever the socket is down.
+# Set enabled = false to force the pure-REST price path.
+# [websocket]
+# enabled = true

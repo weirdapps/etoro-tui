@@ -4,10 +4,16 @@
 
 **etoro-tui is a personal portfolio dashboard.** Single-user, runs locally on your machine, talks to the eToro Public API over HTTPS. It is **not** a security-audited product.
 
-The eToro Public API endpoints used are **read-only**:
+The eToro Public API endpoints used are **read-only**. Paths are relative to
+the base URL `https://www.etoro.com/api/public`:
 
-- `GET /api/v1/trading/info/portfolio`
-- `GET /api/v1/market-data/instruments/rates`
+- `GET /v1/trading/info/portfolio`
+- `GET /v1/market-data/instruments/rates`
+- `GET /v1/market-data/instruments`
+
+etoro-tui also holds a WebSocket connection to `wss://ws.etoro.com/ws`, where
+it subscribes to public `instrument:<id>` price topics only. No order or
+account-mutating message is ever sent on that socket.
 
 The app **never** sends trade orders, never deposits, never withdraws, never modifies your eToro account. A leaked API key grants an attacker visibility into your portfolio composition, equity, cash, and P&L history — but not the ability to trade on your behalf.
 
@@ -19,8 +25,8 @@ Only the latest minor release receives security fixes.
 
 | Version | Supported |
 |---|---|
-| 0.2.x   | ✅ |
-| < 0.2   | ❌ |
+| 0.4.x   | ✅ |
+| < 0.4   | ❌ |
 
 ## Reporting a vulnerability
 
@@ -62,7 +68,7 @@ These are documented rather than secret:
 - **Keyring is shared with all locally-installed apps**: any Python package you install can read the same OS keyring entries that etoro-tui writes. Standard keyring caveat.
 - **Single-maintainer**: bus factor 1. No third-party code review.
 - **Not penetration-tested**.
-- **No SLSA provenance / signed releases** on PyPI.
+- **No SLSA provenance / signed releases**. Wheels are published on GitHub Releases; etoro-tui is not on PyPI.
 
 If your threat model requires any of these protections, **do not run etoro-tui in that environment**.
 
