@@ -26,11 +26,11 @@ classifiers = [
 ]
 dependencies = [
     "textual>=8.2.8",
-    "httpx>=0.28",
+    "httpx>=0.28.1",
     "yfinance>=1.7.0",
     # Cross-platform credential storage (macOS Keychain, Windows Credential
     # Manager, Linux Secret Service). On Linux, SecretService backend needs dbus.
-    "keyring>=24",
+    "keyring>=25.7.0",
     # Real-time price stream (eToro WebSocket). asyncio-native; httpx can't do WS.
     "websockets>=17.0.1",
 ]
