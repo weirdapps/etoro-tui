@@ -348,7 +348,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.16.3" },
     { name = "textual", specifier = ">=8.2.8" },
-    { name = "websockets", specifier = ">=17.0.1" },
+    { name = "websockets", specifier = ">=17.1" },
     { name = "yfinance", specifier = ">=1.7.0" },
 ]
 provides-extras = ["dev"]
